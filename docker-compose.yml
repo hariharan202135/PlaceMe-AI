@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  # MongoDB Atlas / Local Database
+  mongodb:
+    image: mongo:latest
+    container_name: placeme_mongodb
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - placeme_network
+
+  # Node.js + Express Backend Service
+  backend:
+    build: ./backend
+    container_name: placeme_backend
+    ports:
+      - '5000:5000'
+    environment:
+      - PORT=5000
+      - MONGODB_URI=mongodb://mongodb:27017/placeme_ai
+      - JWT_SECRET=super_secret_jwt_key_for_placeme_ai_production
+      - GEMINI_API_KEY=mock_key_or_placeholder_gemini
+      - RAZORPAY_KEY_ID=rzp_test_mock_key
+      - RAZORPAY_KEY_SECRET=mock_secret_key
+      - FRONTEND_URL=http://localhost:3000
+      - NODE_ENV=production
+    depends_on:
+      - mongodb
+    networks:
+      - placeme_network
+
+  # Next.js 15 Frontend Service
+  frontend:
+    build: ./frontend
+    container_name: placeme_frontend
+    ports:
+      - '3000:3000'
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:5000/api
+    depends_on:
+      - backend
+    networks:
+      - placeme_network
+
+volumes:
+  mongo_data:
+
+networks:
+  placeme_network:
+    driver: bridge
