@@ -264,6 +264,8 @@ export const checkDownloadPermission = async (req: AuthRequest, res: Response) =
     return res.status(401).json({ success: false, message: 'Unauthorized' });
   }
 
+  const { resumeId } = req.body;
+
   try {
     const user = await User.findById(req.user._id);
     if (!user) {
@@ -275,22 +277,41 @@ export const checkDownloadPermission = async (req: AuthRequest, res: Response) =
                                   user.subscription.status === 'active';
 
     if (hasActiveSubscription) {
-      return res.status(200).json({ success: true, payRequired: false, downloadsCount: user.resumeDownloadsCount, balance: 99999 });
+      return res.status(200).json({ success: true, payRequired: false });
     }
 
-    if (user.resumeDownloadsCount === 0) {
-      user.resumeDownloadsCount = 1;
-      await user.save();
-      return res.status(200).json({ success: true, payRequired: false, downloadsCount: 1, balance: user.paidResumeDownloadsBalance });
+    // 1. If a specific resume is requested, check if it is already paid/unlocked
+    if (resumeId) {
+      const resume = await UserResume.findOne({ _id: resumeId, user: req.user._id });
+      if (resume && resume.isPaid) {
+        return res.status(200).json({ success: true, payRequired: false });
+      }
     }
 
+    // 2. Check if user has active paid download balance
     if (user.paidResumeDownloadsBalance > 0) {
       user.paidResumeDownloadsBalance -= 1;
       await user.save();
-      return res.status(200).json({ success: true, payRequired: false, downloadsCount: user.resumeDownloadsCount, balance: user.paidResumeDownloadsBalance });
+      
+      if (resumeId) {
+        await UserResume.updateOne({ _id: resumeId, user: req.user._id }, { isPaid: true });
+      }
+      return res.status(200).json({ success: true, payRequired: false });
     }
 
-    return res.status(200).json({ success: false, payRequired: true, downloadsCount: user.resumeDownloadsCount, balance: user.paidResumeDownloadsBalance });
+    // 3. Check if this is the user's first resume download (either count is 0 or user has <= 1 resume)
+    const totalResumes = await UserResume.countDocuments({ user: req.user._id });
+    if (user.resumeDownloadsCount === 0 || totalResumes <= 1) {
+      user.resumeDownloadsCount = 1;
+      await user.save();
+
+      if (resumeId) {
+        await UserResume.updateOne({ _id: resumeId, user: req.user._id }, { isPaid: true });
+      }
+      return res.status(200).json({ success: true, payRequired: false });
+    }
+
+    return res.status(200).json({ success: false, payRequired: true });
   } catch (error) {
     console.error('Error checking download permission:', error);
     res.status(500).json({ success: false, message: 'Server error check permission' });

@@ -367,7 +367,7 @@ export default function ResumePage() {
 
     // Check backend download permission
     try {
-      const response = await api.post('/resume/download-started');
+      const response = await api.post('/resume/download-started', { resumeId: resumeToUse._id });
       if (response.data.success) {
         // Permission granted (either first download, or paid token credit balance consumed)
         if (format === 'pdf') {
