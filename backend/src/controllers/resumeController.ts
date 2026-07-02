@@ -83,9 +83,6 @@ export const analyzeResume = async (req: AuthRequest, res: Response) => {
       await user.save();
     }
 
-    // Release in-memory buffer reference
-    (buffer as any) = null;
-
     res.status(201).json({
       success: true,
       analysis: resumeAnalysis

@@ -337,252 +337,102 @@ export default function ResumePage() {
   };
 
   // Triggers checking permission and performing download
-  const handleRequestDownload = (format: 'pdf' | 'word') => {
+  const handleRequestDownload = async (format: 'pdf' | 'word') => {
     // Check if details are missing
     if (!activeResume.name || !activeResume.role || !activeResume.email || !activeResume.phone) {
       alert('⚠️ Please fill out at least your Name, Role, Email and Phone details first.');
       return;
     }
 
-    let printWindow: Window | null = null;
-    if (format === 'pdf') {
-      printWindow = window.open('', '_blank', 'width=850,height=950');
-      if (printWindow) {
-        printWindow.document.write(`
-          <html>
-            <head>
-              <title>Preparing Resume...</title>
-              <style>
-                body {
-                  font-family: sans-serif;
-                  display: flex;
-                  flex-direction: column;
-                  align-items: center;
-                  justify-content: center;
-                  height: 80vh;
-                  color: #4b5563;
-                }
-                .spinner {
-                  width: 40px;
-                  height: 40px;
-                  border: 4px solid #f3f3f3;
-                  border-top: 4px solid #2563eb;
-                  border-radius: 50%;
-                  animation: spin 1s linear infinite;
-                  margin-bottom: 16px;
-                }
-                @keyframes spin {
-                  0% { transform: rotate(0deg); }
-                  100% { transform: rotate(360deg); }
-                }
-              </style>
-            </head>
-            <body>
-              <div class="spinner"></div>
-              <h3>Preparing Print Document...</h3>
-              <p>Please wait while we secure your session token.</p>
-            </body>
-          </html>
-        `);
-      } else {
-        alert('Pop-up blocked! Please allow pop-ups to print your resume.');
-        return;
-      }
-    }
-
     let resumeToUse = activeResume;
 
-    // Run async checks immediately in synchronous-gesture scope
-    (async () => {
-      // Automatically save draft to cloud first to sync changes and get an ID
-      setSavingCreator(true);
-      try {
-        const payload = {
-          id: activeResume._id,
-          ...activeResume
-        };
-        const saveRes = await api.post('/resume/create', payload);
-        if (saveRes.data.success) {
-          resumeToUse = saveRes.data.resume;
-          setActiveResume(resumeToUse);
-          fetchCreatorResumes();
-        }
-      } catch (err) {
-        console.error('Auto-save before download failed:', err);
-      } finally {
-        setSavingCreator(false);
+    // Automatically save draft to cloud first to sync changes and get an ID
+    setSavingCreator(true);
+    try {
+      const payload = {
+        id: activeResume._id,
+        ...activeResume
+      };
+      const saveRes = await api.post('/resume/create', payload);
+      if (saveRes.data.success) {
+        resumeToUse = saveRes.data.resume;
+        setActiveResume(resumeToUse);
+        fetchCreatorResumes();
       }
+    } catch (err) {
+      console.error('Auto-save before download failed:', err);
+    } finally {
+      setSavingCreator(false);
+    }
 
-      // Check backend download permission
-      try {
-        const response = await api.post('/resume/download-started');
-        if (response.data.success) {
-          // Permission granted (either first download, or paid token credit balance consumed)
-          if (format === 'pdf') {
-            if (printWindow) {
-              printResumeToPDF(resumeToUse, printWindow);
-            }
-          } else {
-            performDownloadWord(resumeToUse);
-          }
+    // Check backend download permission
+    try {
+      const response = await api.post('/resume/download-started');
+      if (response.data.success) {
+        // Permission granted (either first download, or paid token credit balance consumed)
+        if (format === 'pdf') {
+          printResumeToPDF(resumeToUse);
         } else {
-          // Payment required (e.g. 2nd time download or more)
-          if (printWindow) printWindow.close();
-          setCheckoutResumeId(resumeToUse._id || 'new-draft');
-          setShowCheckoutModal(true);
+          performDownloadWord(resumeToUse);
         }
-      } catch (err) {
-        console.error('Error verifying download permission:', err);
-        if (printWindow) printWindow.close();
+      } else {
+        // Payment required (e.g. 2nd time download or more)
         setCheckoutResumeId(resumeToUse._id || 'new-draft');
         setShowCheckoutModal(true);
       }
-    })();
+    } catch (err) {
+      console.error('Error verifying download permission:', err);
+      setCheckoutResumeId(resumeToUse._id || 'new-draft');
+      setShowCheckoutModal(true);
+    }
   };
 
-  const printResumeToPDF = (res: ISavedResume, printWindow: Window) => {
+  const printResumeToPDF = (res: ISavedResume) => {
     const printContent = document.getElementById('printable-resume-preview');
-    if (!printContent) {
-      printWindow.close();
-      return;
-    }
+    if (!printContent) return;
 
-    const absoluteOrigin = window.location.origin;
-    const rawHtml = printContent.innerHTML;
-    // Replace relative uploads with absolute origin to load correctly in new window context
-    const htmlContent = rawHtml.replace(/src="\/uploads\//g, `src="${absoluteOrigin}/uploads/`);
-
-    printWindow.document.open();
-
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>${res.name || 'Resume'}_Print</title>
-          <style>
-            body {
-              font-family: Arial, Helvetica, sans-serif;
-              color: #000000;
-              background-color: #ffffff;
-              margin: 0;
-              padding: 40px;
-              line-height: 1.5;
-            }
-            .text-center { text-align: center; }
-            .text-left { text-align: left; }
-            .text-right { text-align: right; }
-            .grid { display: grid; }
-            .grid-cols-12 { grid-template-columns: repeat(12, minmax(0, 1fr)); }
-            .grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-            .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-            .grid-cols-1 { grid-template-columns: repeat(1, minmax(0, 1fr)); }
-            .gap-4 { gap: 16px; }
-            .gap-6 { gap: 24px; }
-            .items-center { align-items: center; }
-            .col-span-9 { grid-column: span 9 / span 9; }
-            .col-span-3 { grid-column: span 3 / span 3; }
-            .col-span-7 { grid-column: span 7 / span 7; }
-            .col-span-5 { grid-column: span 5 / span 5; }
-            .space-y-1 > * + * { margin-top: 4px; }
-            .space-y-1.5 > * + * { margin-top: 6px; }
-            .space-y-2 > * + * { margin-top: 8px; }
-            .space-y-3 > * + * { margin-top: 12px; }
-            .space-y-4 > * + * { margin-top: 16px; }
-            .space-y-5 > * + * { margin-top: 20px; }
-            .space-y-6 > * + * { margin-top: 24px; }
-            .border-b-2 { border-bottom-width: 2px; }
-            .border-b { border-bottom-width: 1px; }
-            .border-black { border-color: #000000; }
-            .text-3xl { font-size: 28px; }
-            .text-2xl { font-size: 22px; }
-            .text-xs { font-size: 12px; }
-            .text-sm { font-size: 14px; }
-            .text-[11px] { font-size: 11px; }
-            .text-[10px] { font-size: 10px; }
-            .text-[9px] { font-size: 9px; }
-            .font-black { font-weight: 900; }
-            .font-bold { font-weight: 700; }
-            .font-semibold { font-weight: 600; }
-            .font-medium { font-weight: 500; }
-            .uppercase { text-transform: uppercase; }
-            .tracking-tight { letter-spacing: -0.5px; }
-            .tracking-wider { letter-spacing: 0.5px; }
-            .tracking-wide { letter-spacing: 0.25px; }
-            .leading-none { line-height: 1; }
-            .text-blue-600 { color: #2563eb; }
-            .text-gray-700 { color: #374151; }
-            .text-gray-650 { color: #4b5563; }
-            .text-gray-600 { color: #4b5563; }
-            .text-gray-500 { color: #6b7280; }
-            .w-22 { width: 88px; }
-            .h-22 { height: 88px; }
-            .w-20 { width: 80px; }
-            .h-20 { height: 80px; }
-            .rounded-full { border-radius: 9999px; }
-            .object-cover { object-fit: cover; }
-            .border { border: 1px solid #d1d5db; }
-            .ml-auto { margin-left: auto; }
-            .mt-1 { margin-top: 4px; }
-            .mt-2 { margin-top: 8px; }
-            .pt-2 { margin-top: 8px; }
-            .block { display: block; }
-            .inline-block { display: inline-block; }
-            .mr-1 { margin-right: 4px; }
-            .mb-1 { margin-bottom: 4px; }
-            .flex { display: flex; }
-            .flex-wrap { flex-wrap: wrap; }
-            .gap-x-3 { column-gap: 12px; }
-            .gap-x-4 { column-gap: 16px; }
-            .gap-y-1.5 { row-gap: 6px; }
-            .space-x-1.5 > * + * { margin-left: 6px; }
-            .break-all { word-break: break-all; }
-            .list-disc { list-style-type: disc; }
-            .list-inside { list-style-position: inside; }
-            .p-3 { padding: 12px; }
-            .bg-gray-50\/50 { background-color: rgba(249, 250, 251, 0.5); }
-            .border-gray-200 { border-color: #e5e7eb; }
-            .border-gray-300 { border-color: #d1d5db; }
-            .px-2 { padding-left: 8px; padding-right: 8px; }
-            .py-0.5 { padding-top: 2px; padding-bottom: 2px; }
-            .leading-relaxed { line-height: 1.625; }
-            .leading-snug { line-height: 1.375; }
-            .font-mono { font-family: monospace; }
-            .relative { position: relative; }
-            .absolute { position: absolute; }
-            .right-0 { right: 0; }
-            .top-0 { top: 0; }
-            .mx-auto { margin-left: auto; margin-right: auto; }
-            .max-w-xl { max-w: 576px; }
-            .max-w-2xl { max-w: 672px; }
-            .pl-2 { padding-left: 8px; }
-            .mx-1 { margin-left: 4px; margin-right: 4px; }
-            
-            @media print {
-              body {
-                padding: 0;
-                margin: 0;
-                -webkit-print-color-adjust: exact;
-                print-color-adjust: exact;
-              }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="text-sm">
-            ${htmlContent}
-          </div>
-          <script>
-            window.onload = function() {
-              // Add a slight delay to let base64 image streams draw on screen
-              setTimeout(function() {
-                window.print();
-                setTimeout(function() { window.close(); }, 500);
-              }, 400);
-            };
-          </script>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
+    // Create a temporary style element to inject print CSS override
+    const style = document.createElement('style');
+    style.id = 'print-resume-style-override';
+    style.innerHTML = `
+      @media print {
+        /* Hide all page content during print */
+        body * {
+          visibility: hidden !important;
+        }
+        /* Make only the resume container and its children visible */
+        #printable-resume-preview, #printable-resume-preview * {
+          visibility: visible !important;
+        }
+        /* Position the resume container at the absolute top-left */
+        #printable-resume-preview {
+          position: absolute !important;
+          left: 0 !important;
+          top: 0 !important;
+          width: 100% !important;
+          padding: 0 !important;
+          margin: 0 !important;
+          border: none !important;
+          box-shadow: none !important;
+          background: white !important;
+          color: black !important;
+        }
+        /* Page margins */
+        @page {
+          size: auto;
+          margin: 20mm 15mm 20mm 15mm;
+        }
+      }
+    `;
+    
+    document.head.appendChild(style);
+    window.print();
+    
+    // Clean up style tag after printing
+    setTimeout(() => {
+      const el = document.getElementById('print-resume-style-override');
+      if (el) el.remove();
+    }, 1000);
   };
 
   const performDownloadWord = (res: ISavedResume) => {
