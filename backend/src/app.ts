@@ -56,14 +56,20 @@ app.use(
 // Dynamic CORS Configuration
 const allowedOrigins = process.env.FRONTEND_URL 
   ? process.env.FRONTEND_URL.split(',').map(o => o.trim()) 
-  : ['http://localhost:3000', 'https://placemeai.in', 'https://www.placemeai.in'];
+  : [];
 
 app.use(
   cors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
-      const isAllowed = allowedOrigins.includes(origin) || 
-        (process.env.NODE_ENV !== 'production' && origin.startsWith('http://localhost:'));
+      
+      const isAllowed = 
+        allowedOrigins.includes(origin) || 
+        origin === 'https://placemeai.in' ||
+        origin === 'https://www.placemeai.in' ||
+        origin.endsWith('.vercel.app') ||
+        origin.startsWith('http://localhost:');
+        
       if (isAllowed) {
         return callback(null, true);
       } else {
