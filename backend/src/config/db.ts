@@ -8,7 +8,7 @@ export const connectDB = async (): Promise<void> => {
   };
 
   try {
-    await mongoose.connect(mongoURI, options);
+    await mongoose.connect(mongoURI, options as any);
     console.log('✨ MongoDB Connected Successfully to Atlas/Local server.');
   } catch (error) {
     console.error('❌ MongoDB Connection Error:', error);
@@ -19,7 +19,7 @@ export const connectDB = async (): Promise<void> => {
     setTimeout(async () => {
       console.log('🔄 Attempting MongoDB reconnect...');
       try {
-        await mongoose.connect(mongoURI, options);
+        await mongoose.connect(mongoURI, options as any);
         console.log('✨ MongoDB Connected successfully on retry.');
       } catch (err) {
         console.warn('⚠️ Reconnect failed. Running on fallback. Ensure MongoDB is running.');
