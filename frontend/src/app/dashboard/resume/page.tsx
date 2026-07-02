@@ -440,7 +440,7 @@ export default function ResumePage() {
     const absolutePhotoUrl = res.photoUrl ? (res.photoUrl.startsWith('/') ? `${window.location.origin}${res.photoUrl}` : res.photoUrl) : '';
 
     // Generate clean Word-compatible HTML layout
-    const skillsRows = res.skills.map(s => {
+    const skillsRows = (res.skills || []).map(s => {
       const parts = s.split(':');
       if (parts.length > 1) {
         const category = parts[0].trim();
@@ -466,7 +466,7 @@ export default function ResumePage() {
       `;
     }).join('');
 
-    const experienceBlocks = res.experience.map(exp => `
+    const experienceBlocks = (res.experience || []).map(exp => `
       <div style="margin-bottom: 10px; font-family: Arial;">
         <table border="0" cellpadding="0" cellspacing="0" style="width: 100%;">
           <tr>
@@ -484,7 +484,7 @@ export default function ResumePage() {
       </div>
     `).join('');
 
-    const projectBlocks = res.projects.map(proj => `
+    const projectBlocks = (res.projects || []).map(proj => `
       <div style="margin-bottom: 10px; font-family: Arial;">
         <table border="0" cellpadding="0" cellspacing="0" style="width: 100%;">
           <tr>
@@ -501,7 +501,7 @@ export default function ResumePage() {
       </div>
     `).join('');
 
-    const educationBlocks = res.education.map(edu => `
+    const educationBlocks = (res.education || []).map(edu => `
       <div style="margin-bottom: 8px; font-family: Arial;">
         <table border="0" cellpadding="0" cellspacing="0" style="width: 100%;">
           <tr>
@@ -517,10 +517,10 @@ export default function ResumePage() {
     `).join('');
 
     // Dynamic column width calculation for achievements
-    const achCount = res.achievements.length;
+    const achCount = (res.achievements || []).length;
     const colWidth = achCount === 1 ? '100%' : achCount === 2 ? '50%' : '33%';
 
-    const achievementsList = res.achievements.map(ach => {
+    const achievementsList = (res.achievements || []).map(ach => {
       const parts = ach.split(/\s*[-—–]\s*/);
       const title = parts[0].trim();
       const desc = parts.slice(1).join(' — ').trim();
@@ -533,7 +533,7 @@ export default function ResumePage() {
       `;
     }).join('');
 
-    const certificationsList = res.certifications.map(c => `
+    const certificationsList = (res.certifications || []).map(c => `
       <div style="font-size: 9pt; font-family: Arial; text-align: center; color: #333; margin-top: 4px;">
         🏆 ${c}
       </div>

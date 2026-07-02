@@ -41,36 +41,36 @@ const UserResumeSchema: Schema = new Schema(
   {
     user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     template: { type: String, enum: ['classic', 'modern', 'minimal'], default: 'classic' },
-    name: { type: String, required: true },
-    role: { type: String, required: true },
-    email: { type: String, required: true },
-    phone: { type: String, required: true },
+    name: { type: String },
+    role: { type: String },
+    email: { type: String },
+    phone: { type: String },
     linkedin: { type: String },
     github: { type: String },
     photoUrl: { type: String },
-    summary: { type: String, required: true },
+    summary: { type: String },
     skills: [{ type: String }],
     experience: [
       {
-        company: { type: String, required: true },
-        role: { type: String, required: true },
-        duration: { type: String, required: true },
-        description: { type: String, required: true }
+        company: { type: String },
+        role: { type: String },
+        duration: { type: String },
+        description: { type: String }
       }
     ],
     projects: [
       {
-        title: { type: String, required: true },
-        technologies: { type: String, required: true },
-        description: { type: String, required: true },
+        title: { type: String },
+        technologies: { type: String },
+        description: { type: String },
         link: { type: String }
       }
     ],
     education: [
       {
-        institution: { type: String, required: true },
-        degree: { type: String, required: true },
-        duration: { type: String, required: true },
+        institution: { type: String },
+        degree: { type: String },
+        duration: { type: String },
         grade: { type: String }
       }
     ],
