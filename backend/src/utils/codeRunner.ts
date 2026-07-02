@@ -1,7 +1,7 @@
 import { exec } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import { v4 as uuidv4 } from 'uuid';
+import crypto from 'crypto';
 
 const TIMEOUT_MS = 3000; // 3 seconds execution timeout
 
@@ -37,7 +37,7 @@ export const executeCode = async (
   expectedOutput: string
 ): Promise<IRunnerResult> => {
   const tempDir = getTempDir();
-  const fileId = uuidv4();
+  const fileId = crypto.randomUUID();
   const startTime = Date.now();
   
   // Normalize expected output
