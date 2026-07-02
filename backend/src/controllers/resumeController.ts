@@ -90,9 +90,12 @@ export const analyzeResume = async (req: AuthRequest, res: Response) => {
       success: true,
       analysis: resumeAnalysis
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Resume analysis endpoint error:', error);
-    res.status(500).json({ success: false, message: 'Error processing resume analysis' });
+    res.status(500).json({ 
+      success: false, 
+      message: `Error processing resume analysis: ${error.message || error}` 
+    });
   }
 };
 

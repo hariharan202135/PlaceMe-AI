@@ -337,7 +337,7 @@ export default function ResumePage() {
   };
 
   // Triggers checking permission and performing download
-  const handleRequestDownload = async (format: 'pdf' | 'word') => {
+  const handleRequestDownload = (format: 'pdf' | 'word') => {
     // Check if details are missing
     if (!activeResume.name || !activeResume.role || !activeResume.email || !activeResume.phone) {
       alert('⚠️ Please fill out at least your Name, Role, Email and Phone details first.');
@@ -392,49 +392,52 @@ export default function ResumePage() {
 
     let resumeToUse = activeResume;
 
-    // Automatically save draft to cloud first to sync changes and get an ID
-    setSavingCreator(true);
-    try {
-      const payload = {
-        id: activeResume._id,
-        ...activeResume
-      };
-      const saveRes = await api.post('/resume/create', payload);
-      if (saveRes.data.success) {
-        resumeToUse = saveRes.data.resume;
-        setActiveResume(resumeToUse);
-        fetchCreatorResumes();
+    // Run async checks immediately in synchronous-gesture scope
+    (async () => {
+      // Automatically save draft to cloud first to sync changes and get an ID
+      setSavingCreator(true);
+      try {
+        const payload = {
+          id: activeResume._id,
+          ...activeResume
+        };
+        const saveRes = await api.post('/resume/create', payload);
+        if (saveRes.data.success) {
+          resumeToUse = saveRes.data.resume;
+          setActiveResume(resumeToUse);
+          fetchCreatorResumes();
+        }
+      } catch (err) {
+        console.error('Auto-save before download failed:', err);
+      } finally {
+        setSavingCreator(false);
       }
-    } catch (err) {
-      console.error('Auto-save before download failed:', err);
-    } finally {
-      setSavingCreator(false);
-    }
 
-    // Check backend download permission
-    try {
-      const response = await api.post('/resume/download-started');
-      if (response.data.success) {
-        // Permission granted (either first download, or paid token credit balance consumed)
-        if (format === 'pdf') {
-          if (printWindow) {
-            printResumeToPDF(resumeToUse, printWindow);
+      // Check backend download permission
+      try {
+        const response = await api.post('/resume/download-started');
+        if (response.data.success) {
+          // Permission granted (either first download, or paid token credit balance consumed)
+          if (format === 'pdf') {
+            if (printWindow) {
+              printResumeToPDF(resumeToUse, printWindow);
+            }
+          } else {
+            performDownloadWord(resumeToUse);
           }
         } else {
-          performDownloadWord(resumeToUse);
+          // Payment required (e.g. 2nd time download or more)
+          if (printWindow) printWindow.close();
+          setCheckoutResumeId(resumeToUse._id || 'new-draft');
+          setShowCheckoutModal(true);
         }
-      } else {
-        // Payment required (e.g. 2nd time download or more)
+      } catch (err) {
+        console.error('Error verifying download permission:', err);
         if (printWindow) printWindow.close();
         setCheckoutResumeId(resumeToUse._id || 'new-draft');
         setShowCheckoutModal(true);
       }
-    } catch (err) {
-      console.error('Error verifying download permission:', err);
-      if (printWindow) printWindow.close();
-      setCheckoutResumeId(resumeToUse._id || 'new-draft');
-      setShowCheckoutModal(true);
-    }
+    })();
   };
 
   const printResumeToPDF = (res: ISavedResume, printWindow: Window) => {
