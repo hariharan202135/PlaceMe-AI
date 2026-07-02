@@ -290,24 +290,23 @@ export const checkDownloadPermission = async (req: AuthRequest, res: Response) =
 
     // 2. Check if user has active paid download balance
     if (user.paidResumeDownloadsBalance > 0) {
-      user.paidResumeDownloadsBalance -= 1;
-      await user.save();
-      
-      if (resumeId) {
-        await UserResume.updateOne({ _id: resumeId, user: req.user._id }, { isPaid: true });
-      }
       return res.status(200).json({ success: true, payRequired: false });
     }
 
-    // 3. Check if this is the user's first resume download (either count is 0 or user has <= 1 resume)
-    const totalResumes = await UserResume.countDocuments({ user: req.user._id });
-    if (user.resumeDownloadsCount === 0 || totalResumes <= 1) {
-      user.resumeDownloadsCount = 1;
-      await user.save();
+    // 3. Check if this is the user's first resume download (resumeDownloadsCount is 0)
+    if (user.resumeDownloadsCount === 0) {
+      return res.status(200).json({ success: true, payRequired: false });
+    }
 
-      if (resumeId) {
-        await UserResume.updateOne({ _id: resumeId, user: req.user._id }, { isPaid: true });
-      }
+    // 4. Fallback: If they have only 1 resume in total, it must be free
+    const totalResumes = await UserResume.countDocuments({ user: req.user._id });
+    if (totalResumes <= 1) {
+      return res.status(200).json({ success: true, payRequired: false });
+    }
+
+    // 5. Ultimate Fallback: If they have NO resumes marked as isPaid: true, they have never successfully downloaded any resume!
+    const hasAnyPaidResume = await UserResume.exists({ user: req.user._id, isPaid: true });
+    if (!hasAnyPaidResume) {
       return res.status(200).json({ success: true, payRequired: false });
     }
 
@@ -315,6 +314,72 @@ export const checkDownloadPermission = async (req: AuthRequest, res: Response) =
   } catch (error) {
     console.error('Error checking download permission:', error);
     res.status(500).json({ success: false, message: 'Server error check permission' });
+  }
+};
+
+// 9. Confirm Successful Download (Deducts balance / updates count only after action is fired)
+export const confirmDownloadSuccess = async (req: AuthRequest, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ success: false, message: 'Unauthorized' });
+  }
+
+  const { resumeId } = req.body;
+
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const hasActiveSubscription = user.subscription && 
+                                  user.subscription.plan !== 'Free' && 
+                                  user.subscription.status === 'active';
+
+    if (hasActiveSubscription) {
+      return res.status(200).json({ success: true });
+    }
+
+    if (resumeId) {
+      const resume = await UserResume.findOne({ _id: resumeId, user: req.user._id });
+      if (resume) {
+        if (resume.isPaid) {
+          return res.status(200).json({ success: true });
+        }
+
+        // Consume free download
+        if (user.resumeDownloadsCount === 0) {
+          user.resumeDownloadsCount = 1;
+          await user.save();
+          resume.isPaid = true;
+          await resume.save();
+          return res.status(200).json({ success: true, message: 'First free download confirmed.' });
+        }
+
+        // Consume paid balance
+        if (user.paidResumeDownloadsBalance > 0) {
+          user.paidResumeDownloadsBalance -= 1;
+          await user.save();
+          resume.isPaid = true;
+          await resume.save();
+          return res.status(200).json({ success: true, message: 'Paid download confirmed.' });
+        }
+
+        // Check if there are no paid resumes at all, grant as free download
+        const hasAnyPaidResume = await UserResume.exists({ user: req.user._id, isPaid: true });
+        if (!hasAnyPaidResume) {
+          user.resumeDownloadsCount = 1;
+          await user.save();
+          resume.isPaid = true;
+          await resume.save();
+          return res.status(200).json({ success: true, message: 'First free download confirmed via override.' });
+        }
+      }
+    }
+
+    res.status(400).json({ success: false, message: 'No valid download credit or resume found.' });
+  } catch (error) {
+    console.error('Error confirming download success:', error);
+    res.status(500).json({ success: false, message: 'Server error confirming download' });
   }
 };
 

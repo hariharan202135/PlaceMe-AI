@@ -8,6 +8,7 @@ import {
   payForResume,
   deleteUserResume,
   checkDownloadPermission,
+  confirmDownloadSuccess,
   processDownloadPayment
 } from '../controllers/resumeController';
 import { protect } from '../middlewares/auth';
@@ -25,6 +26,7 @@ router.post('/:id/pay', protect, payForResume);
 router.delete('/:id', protect, deleteUserResume);
 
 router.post('/download-started', protect, checkDownloadPermission);
+router.post('/download-completed', protect, confirmDownloadSuccess);
 router.post('/pay-download', protect, processDownloadPayment);
 
 export default router;

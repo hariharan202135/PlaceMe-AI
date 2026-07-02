@@ -375,6 +375,10 @@ export default function ResumePage() {
         } else {
           performDownloadWord(resumeToUse);
         }
+        // Notify backend that download completed successfully
+        api.post('/resume/download-completed', { resumeId: resumeToUse._id }).catch(err => {
+          console.error('Error confirming download success:', err);
+        });
       } else {
         // Payment required (e.g. 2nd time download or more)
         setCheckoutResumeId(resumeToUse._id || 'new-draft');
