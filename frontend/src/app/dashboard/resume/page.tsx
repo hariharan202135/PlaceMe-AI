@@ -344,6 +344,52 @@ export default function ResumePage() {
       return;
     }
 
+    let printWindow: Window | null = null;
+    if (format === 'pdf') {
+      printWindow = window.open('', '_blank', 'width=850,height=950');
+      if (printWindow) {
+        printWindow.document.write(`
+          <html>
+            <head>
+              <title>Preparing Resume...</title>
+              <style>
+                body {
+                  font-family: sans-serif;
+                  display: flex;
+                  flex-direction: column;
+                  align-items: center;
+                  justify-content: center;
+                  height: 80vh;
+                  color: #4b5563;
+                }
+                .spinner {
+                  width: 40px;
+                  height: 40px;
+                  border: 4px solid #f3f3f3;
+                  border-top: 4px solid #2563eb;
+                  border-radius: 50%;
+                  animation: spin 1s linear infinite;
+                  margin-bottom: 16px;
+                }
+                @keyframes spin {
+                  0% { transform: rotate(0deg); }
+                  100% { transform: rotate(360deg); }
+                }
+              </style>
+            </head>
+            <body>
+              <div class="spinner"></div>
+              <h3>Preparing Print Document...</h3>
+              <p>Please wait while we secure your session token.</p>
+            </body>
+          </html>
+        `);
+      } else {
+        alert('Pop-up blocked! Please allow pop-ups to print your resume.');
+        return;
+      }
+    }
+
     let resumeToUse = activeResume;
 
     // Automatically save draft to cloud first to sync changes and get an ID
@@ -371,29 +417,30 @@ export default function ResumePage() {
       if (response.data.success) {
         // Permission granted (either first download, or paid token credit balance consumed)
         if (format === 'pdf') {
-          printResumeToPDF(resumeToUse);
+          if (printWindow) {
+            printResumeToPDF(resumeToUse, printWindow);
+          }
         } else {
           performDownloadWord(resumeToUse);
         }
       } else {
         // Payment required (e.g. 2nd time download or more)
+        if (printWindow) printWindow.close();
         setCheckoutResumeId(resumeToUse._id || 'new-draft');
         setShowCheckoutModal(true);
       }
     } catch (err) {
       console.error('Error verifying download permission:', err);
+      if (printWindow) printWindow.close();
       setCheckoutResumeId(resumeToUse._id || 'new-draft');
       setShowCheckoutModal(true);
     }
   };
 
-  const printResumeToPDF = (res: ISavedResume) => {
+  const printResumeToPDF = (res: ISavedResume, printWindow: Window) => {
     const printContent = document.getElementById('printable-resume-preview');
-    if (!printContent) return;
-
-    const printWindow = window.open('', '_blank', 'width=850,height=950');
-    if (!printWindow) {
-      alert('Pop-up blocked! Please allow pop-ups to print your resume.');
+    if (!printContent) {
+      printWindow.close();
       return;
     }
 
@@ -401,6 +448,8 @@ export default function ResumePage() {
     const rawHtml = printContent.innerHTML;
     // Replace relative uploads with absolute origin to load correctly in new window context
     const htmlContent = rawHtml.replace(/src="\/uploads\//g, `src="${absoluteOrigin}/uploads/`);
+
+    printWindow.document.open();
 
     printWindow.document.write(`
       <html>

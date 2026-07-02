@@ -431,18 +431,24 @@ export const analyzeResumeText = async (resumeText: string): Promise<IResumeAnal
     const cleanJSON = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
     const analysis = JSON.parse(cleanJSON);
 
+    const safeArray = (arr: any): string[] => {
+      if (Array.isArray(arr)) return arr.map(item => String(item).trim());
+      if (typeof arr === 'string') return arr.split(',').map(item => item.trim()).filter(Boolean);
+      return [];
+    };
+
     return {
       atsScore: Number(analysis.atsScore) || 70,
-      skillsIdentified: analysis.skillsIdentified || [],
-      education: analysis.education || 'B.Tech',
-      projects: analysis.projects || [],
-      internships: analysis.internships || [],
-      certifications: analysis.certifications || [],
-      strengths: analysis.strengths || [],
-      weaknesses: analysis.weaknesses || [],
-      missingSkills: analysis.missingSkills || [],
-      suggestions: analysis.suggestions || [],
-      interviewQuestions: analysis.interviewQuestions || []
+      skillsIdentified: safeArray(analysis.skillsIdentified),
+      education: String(analysis.education || 'B.Tech'),
+      projects: safeArray(analysis.projects),
+      internships: safeArray(analysis.internships),
+      certifications: safeArray(analysis.certifications),
+      strengths: safeArray(analysis.strengths),
+      weaknesses: safeArray(analysis.weaknesses),
+      missingSkills: safeArray(analysis.missingSkills),
+      suggestions: safeArray(analysis.suggestions),
+      interviewQuestions: safeArray(analysis.interviewQuestions)
     };
   } catch (error) {
     console.error('Error analyzing resume via Gemini:', error);
