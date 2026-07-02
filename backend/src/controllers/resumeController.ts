@@ -22,6 +22,22 @@ export const analyzeResume = async (req: AuthRequest, res: Response) => {
     const base64Data = file.replace(/^data:application\/pdf;base64,/, '');
     const buffer = Buffer.from(base64Data, 'base64');
 
+    // 1. Validate File Size (Max 5MB)
+    if (buffer.length > 5 * 1024 * 1024) {
+      return res.status(400).json({ success: false, message: 'File size exceeds maximum limit of 5MB.' });
+    }
+
+    // 2. Validate PDF Signature (Magic Bytes: %PDF)
+    const isPdf = buffer.length >= 4 &&
+      buffer[0] === 0x25 && // %
+      buffer[1] === 0x50 && // P
+      buffer[2] === 0x44 && // D
+      buffer[3] === 0x46;   // F
+
+    if (!isPdf) {
+      return res.status(400).json({ success: false, message: 'Invalid file format. Only PDF files are allowed.' });
+    }
+
     // Parse PDF text
     let resumeText = '';
     try {
@@ -66,6 +82,9 @@ export const analyzeResume = async (req: AuthRequest, res: Response) => {
       user.resumeScore = analysisResult.atsScore;
       await user.save();
     }
+
+    // Release in-memory buffer reference
+    (buffer as any) = null;
 
     res.status(201).json({
       success: true,

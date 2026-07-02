@@ -81,4 +81,6 @@ const UserResumeSchema: Schema = new Schema(
   { timestamps: true }
 );
 
+UserResumeSchema.index({ user: 1, createdAt: -1 });
+
 export default mongoose.model<IUserResume>('UserResume', UserResumeSchema);

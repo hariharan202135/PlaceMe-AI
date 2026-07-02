@@ -2,6 +2,10 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import compression from 'compression';
+import mongoose from 'mongoose';
 
 // Config & Utilities
 import { connectDB } from './config/db';
@@ -21,24 +25,92 @@ import aptitudeRoutes from './routes/aptitudeRoutes';
 // Load variables
 dotenv.config();
 
+// Startup Validation
+const requiredEnv = ['MONGODB_URI', 'JWT_SECRET', 'GEMINI_API_KEY'];
+const missingEnv = requiredEnv.filter(key => !process.env[key]);
+if (missingEnv.length > 0) {
+  console.error(`❌ CRITICAL STARTUP ERROR: Missing required environment variables: ${missingEnv.join(', ')}`);
+  process.exit(1);
+}
+
 const app = express();
 const PORT = process.env.PORT || 5000;
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+const startTime = Date.now();
 
-// Middlewares
+// HTTP Security Headers
+app.use(helmet());
+app.use(
+  helmet.contentSecurityPolicy({
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://checkout.razorpay.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      imgSrc: ["'self'", "data:", "https://api.dicebear.com", "https://*.razorpay.com"],
+      frameSrc: ["'self'", "https://api.razorpay.com", "https://*.razorpay.com"],
+      connectSrc: ["'self'", "https://api.razorpay.com", "https://*.razorpay.com", "https://generativelanguage.googleapis.com"]
+    }
+  })
+);
+
+// Dynamic CORS Configuration
+const allowedOrigins = process.env.FRONTEND_URL 
+  ? process.env.FRONTEND_URL.split(',').map(o => o.trim()) 
+  : ['http://localhost:3000', 'https://placemeai.in', 'https://www.placemeai.in'];
+
 app.use(
   cors({
-    origin: FRONTEND_URL,
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      const isAllowed = allowedOrigins.includes(origin) || 
+        (process.env.NODE_ENV !== 'production' && origin.startsWith('http://localhost:'));
+      if (isAllowed) {
+        return callback(null, true);
+      } else {
+        return callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
   })
 );
+
+// Rate Limiting
+const apiLimiter = rateLimit({
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW || '900000', 10), // 15 mins default
+  max: parseInt(process.env.RATE_LIMIT_MAX || '100', 10),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many requests from this IP, please try again after 15 minutes.'
+  }
+});
+app.use('/api', apiLimiter);
+
+// Gzip Compression
+app.use(compression());
 
 // Accept large base64 strings for PDF upload
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
+
+// AI Endpoint Timeouts (30s)
+const aiTimeout = (req: Request, res: Response, next: NextFunction) => {
+  res.setTimeout(30000, () => {
+    if (!res.headersSent) {
+      res.status(504).json({
+        success: false,
+        message: 'Request timeout. The AI service is taking longer than expected. Please try again.'
+      });
+    }
+  });
+  next();
+};
+app.use('/api/interviews', aiTimeout);
+app.use('/api/resume', aiTimeout);
 
 // API route mappings
 app.use('/api/auth', authRoutes);
@@ -51,21 +123,29 @@ app.use('/api/payments', paymentRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/aptitude', aptitudeRoutes);
 
-// Health check endpoint
+// Versioned health check endpoint
 app.get('/api/health', (req: Request, res: Response) => {
-  res.status(200).json({ 
-    success: true, 
-    message: 'PlaceMe AI Backend API is healthy and running.',
-    time: new Date()
+  const dbConnected = mongoose.connection.readyState === 1;
+  const geminiConfigured = !!process.env.GEMINI_API_KEY;
+  const isHealthy = dbConnected && geminiConfigured;
+  
+  res.status(isHealthy ? 200 : 503).json({
+    status: isHealthy ? 'healthy' : 'unhealthy',
+    database: dbConnected ? 'connected' : 'disconnected',
+    gemini_api: geminiConfigured ? 'configured' : 'missing',
+    version: '1.0.0',
+    uptime: `${Math.floor((Date.now() - startTime) / 1000)}s`,
+    timestamp: new Date()
   });
 });
 
 // Global Error Handler
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-  console.error('Unhandled Server Error:', err);
+  console.error('Unhandled Server Error:', err.message || err);
   res.status(err.status || 500).json({
     success: false,
-    message: err.message || 'Internal Server Error'
+    message: err.message || 'Internal Server Error',
+    ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
   });
 });
 

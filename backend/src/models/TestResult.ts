@@ -59,4 +59,7 @@ const TestResultSchema: Schema = new Schema(
   { timestamps: true }
 );
 
+TestResultSchema.index({ user: 1, mockTest: 1 });
+TestResultSchema.index({ user: 1, createdAt: -1 });
+
 export default mongoose.model<ITestResult>('TestResult', TestResultSchema);

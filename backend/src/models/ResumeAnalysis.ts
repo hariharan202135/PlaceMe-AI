@@ -37,4 +37,6 @@ const ResumeAnalysisSchema: Schema = new Schema(
   { timestamps: true }
 );
 
+ResumeAnalysisSchema.index({ user: 1, createdAt: -1 });
+
 export default mongoose.model<IResumeAnalysis>('ResumeAnalysis', ResumeAnalysisSchema);
