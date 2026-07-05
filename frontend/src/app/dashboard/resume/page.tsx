@@ -416,23 +416,25 @@ export default function ResumePage() {
         #printable-resume-preview, #printable-resume-preview * {
           visibility: visible !important;
         }
-        /* Position the resume container at the absolute top-left */
+        /* Position the resume container at the absolute top-left and apply margins as padding */
         #printable-resume-preview {
           position: absolute !important;
           left: 0 !important;
           top: 0 !important;
           width: 100% !important;
-          padding: 0 !important;
+          padding: 20mm 15mm 20mm 15mm !important;
           margin: 0 !important;
           border: none !important;
           box-shadow: none !important;
           background: white !important;
           color: black !important;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
         }
-        /* Page margins */
+        /* Remove browser default print headers and footers (date, title, URL) */
         @page {
-          size: auto;
-          margin: 20mm 15mm 20mm 15mm;
+          size: A4 portrait;
+          margin: 0 !important;
         }
       }
     `;

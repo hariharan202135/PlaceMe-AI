@@ -32,7 +32,7 @@ export const createSubscription = async (req: AuthRequest, res: Response) => {
   }
 
   try {
-    const amount = plan === 'Monthly' ? 29 : 199;
+    const amount = plan === 'Monthly' ? 25 : 80;
     const razorpay = getRazorpayInstance();
 
     if (!razorpay) {
@@ -91,7 +91,7 @@ export const verifyPayment = async (req: AuthRequest, res: Response) => {
 
   try {
     const isMock = razorpay_subscription_id && razorpay_subscription_id.startsWith('sub_mock_');
-    const amount = plan === 'Monthly' ? 29 : 199;
+    const amount = plan === 'Monthly' ? 25 : 80;
 
     if (isMock) {
       // Complete mock payment validation

@@ -9,6 +9,29 @@ export const getGenAIClient = () => {
   return new GoogleGenerativeAI(apiKey);
 };
 
+// Helper to call Gemini safely with multiple fallback models to prevent 404 model errors on older/newer keys
+export const generateContentSafe = async (client: any, prompt: string, defaultModel = 'gemini-1.5-flash'): Promise<string> => {
+  const modelsToTry = [defaultModel, 'gemini-1.5-flash-latest', 'gemini-1.5-pro', 'gemini-pro', 'gemini-1.0-pro'];
+  let lastError = null;
+  for (const model of modelsToTry) {
+    try {
+      const modelInstance = client.getGenerativeModel({ model });
+      const result = await modelInstance.generateContent(prompt);
+      if (result && result.response) {
+        return result.response.text().trim();
+      }
+    } catch (err: any) {
+      console.warn(`⚠️ Gemini model "${model}" failed:`, err.message || err);
+      lastError = err;
+      if (err.message && err.message.includes('API_KEY_INVALID')) {
+        throw err;
+      }
+      continue;
+    }
+  }
+  throw lastError || new Error('All Gemini model fallbacks failed.');
+};
+
 // 1. Generate HR Interview Questions
 export const generateHRQuestions = async (jobRole: string): Promise<string[]> => {
   const defaultQuestions = [
@@ -26,13 +49,11 @@ export const generateHRQuestions = async (jobRole: string): Promise<string[]> =>
   }
 
   try {
-    const model = client.getGenerativeModel({ model: 'gemini-1.5-flash' });
     const prompt = `You are a professional HR interviewer at a top tech company. 
     Generate 5 relevant, challenging HR interview questions for a candidate applying for the role: "${jobRole}".
     Return the response as a strict JSON array of strings. Do not include markdown code block formatting (like \`\`\`json), comments, or extra text. Just output the JSON array.`;
 
-    const result = await model.generateContent(prompt);
-    const responseText = result.response.text().trim();
+    const responseText = await generateContentSafe(client, prompt);
     
     // Clean potential markdown wrapped blocks
     const cleanJSON = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -121,7 +142,6 @@ export const evaluateHRAnswer = async (
   }
 
   try {
-    const model = client.getGenerativeModel({ model: 'gemini-1.5-flash' });
     const prompt = `You are an HR director evaluating a candidate's answer for the role of: "${jobRole}".
     
     Question asked: "${question}"
@@ -134,8 +154,7 @@ export const evaluateHRAnswer = async (
     
     Output ONLY valid JSON. No markdown wrappers, no descriptions, no backticks.`;
 
-    const result = await model.generateContent(prompt);
-    const responseText = result.response.text().trim();
+    const responseText = await generateContentSafe(client, prompt);
     const cleanJSON = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
     const resultObj = JSON.parse(cleanJSON);
 
@@ -406,7 +425,6 @@ export const analyzeResumeText = async (resumeText: string): Promise<IResumeAnal
   }
 
   try {
-    const model = client.getGenerativeModel({ model: 'gemini-1.5-flash' });
     const prompt = `You are an ATS (Applicant Tracking System) optimizer and professional recruiter. Analyze the following resume text:
     
     "${resumeText}"
@@ -426,8 +444,7 @@ export const analyzeResumeText = async (resumeText: string): Promise<IResumeAnal
     
     Ensure the response is valid JSON. Do not write markdown markers, descriptions, or comments. Just return the JSON object.`;
 
-    const result = await model.generateContent(prompt);
-    const responseText = result.response.text().trim();
+    const responseText = await generateContentSafe(client, prompt);
     const cleanJSON = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
     const analysis = JSON.parse(cleanJSON);
 
@@ -535,7 +552,6 @@ export const explainCodingProblem = async (
   }
 
   try {
-    const model = client.getGenerativeModel({ model: 'gemini-1.5-flash' });
     const prompt = `You are a Senior Software Architect and technical interviewer at a top company. Analyze the following programming question:
     
     Question Topic: "${topic}"
@@ -553,8 +569,7 @@ export const explainCodingProblem = async (
     
     Return a strict JSON object with fields: "bruteForce", "stepByStep", "optimalApproach", "timeComplexity", "spaceComplexity", "edgeCases", "interviewTips". Do not include markdown code block wrappers (like \`\`\`json) or extra text.`;
 
-    const result = await model.generateContent(prompt);
-    const responseText = result.response.text().trim();
+    const responseText = await generateContentSafe(client, prompt);
     const cleanJSON = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
     const parsed = JSON.parse(cleanJSON);
 
@@ -613,8 +628,6 @@ export const generateAIInterviewerFollowUp = async (
   }
 
   try {
-    const model = client.getGenerativeModel({ model: 'gemini-1.5-flash' });
-    
     const formattedHistory = chatHistory.map(h => `${h.role === 'user' ? 'Student' : 'Tutor'}: ${h.parts}`).join('\n');
 
     const prompt = `You are a friendly, expert AI coding tutor helping a student learn and understand a programming challenge.
@@ -630,8 +643,8 @@ export const generateAIInterviewerFollowUp = async (
     Keep your response clear, engaging, and supportive. Answer their specific questions directly.
     Do not output any tags, system instructions, or markdown wrappers. Just output your tutor response message.`;
 
-    const result = await model.generateContent(prompt);
-    return result.response.text().trim();
+    const responseText = await generateContentSafe(client, prompt);
+    return responseText;
   } catch (error: any) {
     console.error('Error generating tutor answer:', error);
     

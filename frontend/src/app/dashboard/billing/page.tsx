@@ -164,7 +164,7 @@ export default function BillingPage() {
     <div className="max-w-6xl mx-auto space-y-6">
       {/* Overlay Simulator */}
       {mockOverlay && (() => {
-        const payAmount = mockOverlay.plan === 'Monthly' ? 29 : 199;
+        const payAmount = mockOverlay.plan === 'Monthly' ? 25 : 80;
         const upiMapping = {
           phonepe: { name: 'PhonePe', vpa: '9894995725@ybl', color: 'border-purple-500 text-purple-400 bg-purple-500/10' },
           gpay: { name: 'GPay', vpa: '9894995725@okaxis', color: 'border-blue-500 text-blue-400 bg-blue-500/10' },
@@ -340,7 +340,7 @@ export default function BillingPage() {
               </span>
               <h3 className="text-lg font-bold">Monthly Premium Plan</h3>
               <div className="flex items-baseline">
-                <span className="text-3xl font-extrabold text-foreground">₹29</span>
+                <span className="text-3xl font-extrabold text-foreground">₹25</span>
                 <span className="text-muted-foreground text-xs"> / month</span>
               </div>
               <ul className="space-y-2 text-xs text-muted-foreground pt-2">
@@ -381,7 +381,7 @@ export default function BillingPage() {
               </span>
               <h3 className="text-lg font-bold">Yearly Premium Plan</h3>
               <div className="flex items-baseline">
-                <span className="text-3xl font-extrabold text-foreground">₹199</span>
+                <span className="text-3xl font-extrabold text-foreground">₹80</span>
                 <span className="text-muted-foreground text-xs"> / year</span>
               </div>
               <ul className="space-y-2 text-xs text-muted-foreground pt-2">

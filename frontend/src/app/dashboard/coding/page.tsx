@@ -359,7 +359,7 @@ public class Solution {
 
           <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex items-center space-x-2 text-xs font-bold text-emerald-500">
             <Sparkles className="w-4.5 h-4.5 animate-pulse text-emerald-500 flex-shrink-0" />
-            <span>Solve 3 coding sets for free for any domain (TCS, General, Wipro, etc.). Pay ₹10 to unlock other premium sets. Users with an active subscription can access all sets for free!</span>
+            <span>Solve 3 coding sets for free for any domain (TCS, General, Wipro, etc.). Sets 4 & 5 are Premium coding sets unlocked exclusively for active Premium subscribers!</span>
           </div>
 
           {/* Domain Selector Row */}
@@ -400,7 +400,7 @@ public class Solution {
                 const hasActiveSubscription = user?.subscription?.plan && 
                                               user.subscription.plan !== 'Free' && 
                                               user.subscription.status === 'active';
-                const isUnlocked = !isPremium || hasActiveSubscription || unlockedSets.includes(`${selectedDomain}_Set ${setIdx}`);
+                const isUnlocked = !isPremium || hasActiveSubscription;
                 return (
                   <div 
                     key={setIdx} 
@@ -424,12 +424,6 @@ public class Solution {
                       <p className="text-xs text-muted-foreground font-semibold">
                         20 Coding Interview Questions
                       </p>
-                      
-                      {!isUnlocked && (
-                        <div className="text-[10px] bg-red-500/10 text-red-500 px-2 py-0.5 rounded font-bold uppercase w-fit mx-auto mt-2">
-                          Price: ₹10
-                        </div>
-                      )}
                     </div>
 
                     {isUnlocked ? (
@@ -442,13 +436,12 @@ public class Solution {
                     ) : (
                       <button
                         onClick={() => {
-                          setUnlockSetIndex(setIdx);
-                          setShowUnlockModal(true);
+                          window.location.href = '/dashboard/billing';
                         }}
-                        className="w-full bg-red-500 hover:bg-red-650 text-white font-bold py-2 rounded-xl text-xs transition flex items-center justify-center space-x-1.5"
+                        className="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2 rounded-xl text-xs transition flex items-center justify-center space-x-1.5"
                       >
                         <Lock className="w-3 h-3" />
-                        <span>Unlock Set</span>
+                        <span>Upgrade to Premium</span>
                       </button>
                     )}
                   </div>
