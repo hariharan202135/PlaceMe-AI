@@ -1,4 +1,6 @@
 import { Response } from 'express';
+import fs from 'fs';
+import path from 'path';
 import pdf from 'pdf-parse';
 import ResumeAnalysis from '../models/ResumeAnalysis';
 import User from '../models/User';
@@ -145,6 +147,28 @@ export const saveUserResume = async (req: AuthRequest, res: Response) => {
 
   const { id, template, name, role, email, phone, linkedin, github, photoUrl, summary, skills, experience, projects, education, achievements, certifications } = req.body;
 
+  let savedPhotoUrl = photoUrl;
+  if (photoUrl && photoUrl.startsWith('data:image/')) {
+    try {
+      const matches = photoUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+      if (matches && matches.length === 3) {
+        const ext = matches[1].split('/')[1] || 'png';
+        const dataBuffer = Buffer.from(matches[2], 'base64');
+        const filename = `${req.user._id}-${Date.now()}.${ext}`;
+        const uploadDir = path.join(__dirname, '../../uploads');
+        
+        if (!fs.existsSync(uploadDir)) {
+          fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        
+        fs.writeFileSync(path.join(uploadDir, filename), dataBuffer);
+        savedPhotoUrl = `/uploads/${filename}`;
+      }
+    } catch (e) {
+      console.error('Failed to write base64 image:', e);
+    }
+  }
+
   try {
     if (id) {
       // Update existing resume
@@ -160,7 +184,7 @@ export const saveUserResume = async (req: AuthRequest, res: Response) => {
       existingResume.phone = phone || existingResume.phone;
       existingResume.linkedin = linkedin;
       existingResume.github = github;
-      existingResume.photoUrl = photoUrl;
+      existingResume.photoUrl = savedPhotoUrl;
       existingResume.summary = summary || existingResume.summary;
       existingResume.skills = skills || existingResume.skills;
       existingResume.experience = experience || existingResume.experience;
@@ -175,7 +199,10 @@ export const saveUserResume = async (req: AuthRequest, res: Response) => {
     } else {
       // Create new resume
       const resumeCount = await UserResume.countDocuments({ user: req.user._id });
-      const isPaid = resumeCount === 0; // First resume is free!
+      if (resumeCount >= 1) {
+        return res.status(400).json({ success: false, message: 'You can only create and save one resume. Please edit your existing resume.' });
+      }
+      const isPaid = true; // First and only resume is free and unlocked!
 
       const newResume = await UserResume.create({
         user: req.user._id,
@@ -186,7 +213,7 @@ export const saveUserResume = async (req: AuthRequest, res: Response) => {
         phone,
         linkedin,
         github,
-        photoUrl,
+        photoUrl: savedPhotoUrl,
         summary,
         skills,
         experience,
@@ -267,50 +294,8 @@ export const checkDownloadPermission = async (req: AuthRequest, res: Response) =
   const { resumeId } = req.body;
 
   try {
-    const user = await User.findById(req.user._id);
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
-    }
-
-    const hasActiveSubscription = user.subscription && 
-                                  user.subscription.plan !== 'Free' && 
-                                  user.subscription.status === 'active';
-
-    if (hasActiveSubscription) {
-      return res.status(200).json({ success: true, payRequired: false });
-    }
-
-    // 1. If a specific resume is requested, check if it is already paid/unlocked
-    if (resumeId) {
-      const resume = await UserResume.findOne({ _id: resumeId, user: req.user._id });
-      if (resume && resume.isPaid) {
-        return res.status(200).json({ success: true, payRequired: false });
-      }
-    }
-
-    // 2. Check if user has active paid download balance
-    if (user.paidResumeDownloadsBalance > 0) {
-      return res.status(200).json({ success: true, payRequired: false });
-    }
-
-    // 3. Check if this is the user's first resume download (resumeDownloadsCount is 0)
-    if (user.resumeDownloadsCount === 0) {
-      return res.status(200).json({ success: true, payRequired: false });
-    }
-
-    // 4. Fallback: If they have only 1 resume in total, it must be free
-    const totalResumes = await UserResume.countDocuments({ user: req.user._id });
-    if (totalResumes <= 1) {
-      return res.status(200).json({ success: true, payRequired: false });
-    }
-
-    // 5. Ultimate Fallback: If they have NO resumes marked as isPaid: true, they have never successfully downloaded any resume!
-    const hasAnyPaidResume = await UserResume.exists({ user: req.user._id, isPaid: true });
-    if (!hasAnyPaidResume) {
-      return res.status(200).json({ success: true, payRequired: false });
-    }
-
-    return res.status(200).json({ success: false, payRequired: true });
+    // Downloads are now completely free and unlimited for all users!
+    return res.status(200).json({ success: true, payRequired: false });
   } catch (error) {
     console.error('Error checking download permission:', error);
     res.status(500).json({ success: false, message: 'Server error check permission' });

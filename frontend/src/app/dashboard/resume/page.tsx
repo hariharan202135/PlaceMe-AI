@@ -64,8 +64,16 @@ interface ISavedResume {
 
 export default function ResumePage() {
   const { user } = useAuth();
-  
-  // Tab states
+
+  const getAbsolutePhotoUrl = (url?: string) => {
+    if (!url) return '';
+    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
+      return url;
+    }
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+    const baseUrl = apiUrl.replace(/\/api$/, '');
+    return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
+  };
   const [activeTab, setActiveTab] = useState<'analyser' | 'creator'>('analyser');
   
   // ==========================================
@@ -441,7 +449,7 @@ export default function ResumePage() {
 
   const performDownloadWord = (res: ISavedResume) => {
     // Convert relative photoUrl paths to absolute paths
-    const absolutePhotoUrl = res.photoUrl ? (res.photoUrl.startsWith('/') ? `${window.location.origin}${res.photoUrl}` : res.photoUrl) : '';
+    const absolutePhotoUrl = getAbsolutePhotoUrl(res.photoUrl);
 
     // Generate clean Word-compatible HTML layout
     const skillsRows = (res.skills || []).map(s => {
@@ -1094,68 +1102,18 @@ export default function ResumePage() {
       {/* ==================================================== */}
       {activeTab === 'creator' && (
         <div className="space-y-6 text-left">
-          {/* Header & Pricing Callout */}
+          {/* Header & Description */}
           <div className="p-6 border border-border bg-card/35 rounded-2xl space-y-3 relative overflow-hidden">
             <div className="absolute -top-12 -right-12 w-48 h-48 bg-primary/10 rounded-full blur-3xl" />
             <h1 className="text-2xl font-black text-foreground relative z-10">ATS-Friendly Resume Creator</h1>
             <p className="text-xs text-muted-foreground leading-relaxed relative z-10">
               Input your details in the precise logical order scanned by ATS parsers. Recommend using the **Classic Professional** layout for maximum scoring compatibility.
             </p>
-            
-            {/* 1st Resume Free & ₹5 subsequent callout */}
-            <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center justify-between gap-4 text-xs font-bold text-emerald-500 relative z-10">
-              <div className="flex items-center space-x-2">
-                <Sparkle className="w-4.5 h-4.5 animate-pulse" />
-                <span>First resume download is free, and pay ₹5 each for additional downloads. (Active subscribers get unlimited downloads for free!)</span>
-              </div>
-              <button 
-                onClick={handleStartFreshResume}
-                className="bg-emerald-500 text-white font-bold py-1 px-3 rounded-lg text-[10px] transition hover:bg-emerald-600"
-              >
-                Create Fresh Draft
-              </button>
-            </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
             {/* LEFT INPUTS FORM: 5/12 cols */}
             <div className="lg:col-span-5 space-y-6">
-              
-              {/* Drafts History */}
-              {savedResumes.length > 0 && (
-                <div className="p-5 border border-border bg-card/30 rounded-2xl space-y-3">
-                  <h4 className="font-extrabold text-xs text-muted-foreground uppercase tracking-wider">Your Resume Drafts</h4>
-                  <div className="space-y-2">
-                    {savedResumes.map((res) => (
-                      <div 
-                        key={res._id}
-                        onClick={() => handleSelectResumeFromHistory(res)}
-                        className={`p-3 border rounded-xl flex items-center justify-between text-xs cursor-pointer transition ${
-                          activeResume._id === res._id 
-                            ? 'border-primary bg-primary/5' 
-                            : 'border-border bg-background hover:border-primary/20'
-                        }`}
-                      >
-                        <div className="truncate max-w-[70%]">
-                          <span className="font-bold text-foreground block truncate">{res.name || 'Untitled Draft'}</span>
-                          <span className="text-[10px] text-muted-foreground">{res.role || 'No Role'}</span>
-                        </div>
-                        <div className="flex items-center space-x-2 text-[10px]">
-                          <span className="px-1.5 py-0.5 rounded font-bold uppercase bg-primary/10 text-primary text-[8px]">
-                            Saved Draft
-                          </span>
-                          <button
-                            onClick={(e) => handleDeleteResume(res._id!, e)}
-                            className="p-1 hover:text-red-500 text-muted-foreground"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
 
               {/* Form card */}
               <div className="p-6 border border-border bg-card/30 rounded-2xl space-y-5">
@@ -1194,7 +1152,7 @@ export default function ResumePage() {
                     {activeResume.photoUrl ? (
                       <div className="relative w-12 h-12 flex-shrink-0">
                         <img
-                          src={activeResume.photoUrl}
+                          src={getAbsolutePhotoUrl(activeResume.photoUrl)}
                           alt="Preview"
                           className="w-12 h-12 rounded-full object-cover border border-border"
                         />
@@ -1669,7 +1627,7 @@ export default function ResumePage() {
                     <div className="flex items-center space-x-6 border-b-2 border-black pb-4 text-left">
                       {activeResume.photoUrl && (
                         <img 
-                          src={activeResume.photoUrl} 
+                          src={getAbsolutePhotoUrl(activeResume.photoUrl)} 
                           alt="Profile" 
                           className="w-20 h-20 rounded-full object-cover border border-gray-300 flex-shrink-0" 
                         />
@@ -1902,7 +1860,7 @@ export default function ResumePage() {
                     <div className="col-span-4 bg-gray-50 p-4 rounded-xl space-y-4 border-r border-gray-100">
                       {activeResume.photoUrl && (
                         <img 
-                          src={activeResume.photoUrl} 
+                          src={getAbsolutePhotoUrl(activeResume.photoUrl)} 
                           alt="Profile" 
                           className="w-20 h-20 rounded-full mx-auto object-cover border-2 border-indigo-500 mb-1" 
                         />
