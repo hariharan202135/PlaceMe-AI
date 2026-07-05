@@ -30,12 +30,14 @@
     "helmet": "^8.2.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.4.1",
+    "nodemailer": "^9.0.3",
     "pdf-parse": "^1.1.1",
     "razorpay": "^2.9.4",
     "typescript": "^5.4.5",
     "uuid": "^14.0.1"
   },
   "devDependencies": {
+    "@types/nodemailer": "^8.0.1",
     "ts-node-dev": "^2.0.0"
   }
 }

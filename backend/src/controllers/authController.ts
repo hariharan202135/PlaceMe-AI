@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import { validationResult } from 'express-validator';
 import User, { IUser } from '../models/User';
 import { AuthRequest } from '../middlewares/auth';
+import { sendResetEmail } from '../utils/mailer';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_jwt_key_for_placeme_ai_production';
 const NODE_ENV = process.env.NODE_ENV || 'development';
@@ -187,12 +188,16 @@ export const forgotPassword = async (req: Request, res: Response) => {
 
     const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/reset-password?token=${resetToken}`;
     
-    // In production, mail the resetUrl to the user. For deployment readiness:
-    console.log(`✉️ Password reset request for ${email}. Link: ${resetUrl}`);
+    // Attempt sending real email
+    const emailSent = await sendResetEmail(email, resetUrl);
+
+    console.log(`✉️ Password reset request for ${email}. Link: ${resetUrl}. Email Sent: ${emailSent}`);
 
     res.status(200).json({
       success: true,
-      message: 'Password reset link generated successfully. (Check backend logs if email service is unconfigured)',
+      message: emailSent 
+        ? 'Password reset email sent successfully! Please check your inbox.'
+        : 'Password reset link generated successfully. (Check backend logs if email service is unconfigured)',
       resetLink: resetUrl // Returned for convenience in sandbox environments
     });
   } catch (error) {

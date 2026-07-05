@@ -15,6 +15,15 @@ export default function ForgotPasswordPage() {
   const [resetLink, setResetLink] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const getAbsoluteResetLink = (link: string) => {
+    try {
+      const url = new URL(link);
+      return `${window.location.origin}${url.pathname}${url.search}`;
+    } catch (e) {
+      return link;
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email) {
@@ -48,7 +57,7 @@ export default function ForgotPasswordPage() {
     <div className="min-h-screen w-full flex items-center justify-center relative overflow-hidden bg-background text-foreground py-12 px-4 sm:px-6 lg:px-8">
       {/* Decorative Blur Orbs */}
       <div className="absolute -top-40 -left-40 w-96 h-96 bg-primary/10 rounded-full blur-3xl animate-pulse-glow" />
-      <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl animate-pulse-glow" />
+      <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-primary/10 rounded-full blur-3xl animate-pulse-glow" />
 
       {/* Floating Theme Button */}
       <button
@@ -58,16 +67,15 @@ export default function ForgotPasswordPage() {
         {theme === 'dark' ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5 text-indigo-600" />}
       </button>
 
-      <div className="max-w-md w-full space-y-8 glass p-8 rounded-2xl shadow-xl relative z-10">
-        <div className="text-center">
-          <div className="inline-flex items-center justify-center space-x-2 bg-primary/10 text-primary px-3 py-1 rounded-full text-xs font-semibold mb-3">
+      {/* Main card */}
+      <div className="max-w-md w-full bg-card/30 border border-border p-8 rounded-3xl backdrop-blur-md shadow-2xl relative z-10 space-y-6">
+        <div className="text-center space-y-2">
+          <div className="inline-flex items-center space-x-1 bg-primary/15 text-primary px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
             <Sparkles className="w-3.5 h-3.5" />
             <span>Reset credentials</span>
           </div>
-          <h2 className="text-3xl font-extrabold tracking-tight">
-            Forgot Password
-          </h2>
-          <p className="mt-2 text-sm text-muted-foreground">
+          <h2 className="text-3xl font-black tracking-tight text-foreground">Forgot Password</h2>
+          <p className="text-xs text-muted-foreground">
             Enter your email and we'll generate a verification link.
           </p>
         </div>
@@ -90,9 +98,9 @@ export default function ForgotPasswordPage() {
             </p>
             {resetLink && (
               <div className="mt-2 p-2.5 bg-card/80 border border-border rounded-lg text-xs break-all flex flex-col space-y-1 text-foreground">
-                <span className="font-medium text-primary">Local Verification Link (Click to test):</span>
-                <a href={resetLink} className="underline text-indigo-400 hover:text-indigo-300">
-                  {resetLink}
+                <span className="font-medium text-primary">Verification Link (Click to test/reset):</span>
+                <a href={getAbsoluteResetLink(resetLink)} className="underline text-indigo-400 hover:text-indigo-300">
+                  {getAbsoluteResetLink(resetLink)}
                 </a>
               </div>
             )}
