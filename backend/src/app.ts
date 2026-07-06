@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import compression from 'compression';
 import mongoose from 'mongoose';
+import path from 'path';
 
 // Config & Utilities
 import { connectDB } from './config/db';
@@ -97,6 +98,9 @@ app.use('/api', apiLimiter);
 
 // Gzip Compression
 app.use(compression());
+
+// Serve static profile uploads with CORS enabled
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Accept large base64 strings for PDF upload
 app.use(express.json({ limit: '10mb' }));

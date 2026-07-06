@@ -246,7 +246,12 @@ export default function ResumePage() {
     try {
       const res = await api.get('/resume/my-resumes');
       if (res.data.success) {
-        setSavedResumes(res.data.resumes || []);
+        const list = res.data.resumes || [];
+        setSavedResumes(list);
+        if (list.length > 0) {
+          const updated = await ensurePhotoIsBase64(list[0]);
+          setActiveResume(updated);
+        }
       }
     } catch (err) {
       console.error('Error fetching user resumes:', err);
@@ -342,8 +347,9 @@ export default function ResumePage() {
     }
   };
 
-  const handleSelectResumeFromHistory = (res: ISavedResume) => {
-    setActiveResume(res);
+  const handleSelectResumeFromHistory = async (res: ISavedResume) => {
+    const updated = await ensurePhotoIsBase64(res);
+    setActiveResume(updated);
     setCreatorMsg('');
   };
 
@@ -443,6 +449,9 @@ export default function ResumePage() {
       };
 
       const tempWrapper = document.createElement('div');
+      tempWrapper.style.position = 'absolute';
+      tempWrapper.style.left = '-9999px';
+      tempWrapper.style.top = '0';
       tempWrapper.style.width = '210mm';
       tempWrapper.style.background = '#ffffff';
       tempWrapper.style.color = '#000000';
@@ -450,7 +459,9 @@ export default function ResumePage() {
       tempWrapper.style.boxSizing = 'border-box';
       tempWrapper.innerHTML = printContent.innerHTML;
 
+      document.body.appendChild(tempWrapper);
       await html2pdf().from(tempWrapper).set(opt).save();
+      document.body.removeChild(tempWrapper);
     } catch (err) {
       console.error('Error generating PDF:', err);
       alert('Failed to generate PDF. Please try again.');
@@ -477,6 +488,22 @@ export default function ResumePage() {
       console.error('Error fetching image for base64 conversion:', e);
       return imgUrl;
     }
+  };
+
+  const ensurePhotoIsBase64 = async (resume: ISavedResume): Promise<ISavedResume> => {
+    if (resume && resume.photoUrl && !resume.photoUrl.startsWith('data:')) {
+      const absoluteUrl = getAbsolutePhotoUrl(resume.photoUrl);
+      try {
+        const base64 = await getBase64Image(absoluteUrl);
+        return {
+          ...resume,
+          photoUrl: base64
+        };
+      } catch (e) {
+        console.error('Failed to convert resume photo to base64 on load:', e);
+      }
+    }
+    return resume;
   };
 
   const performDownloadWord = async (res: ISavedResume) => {
@@ -1187,6 +1214,7 @@ export default function ResumePage() {
                       <div className="relative w-12 h-12 flex-shrink-0">
                         <img
                           src={getAbsolutePhotoUrl(activeResume.photoUrl)}
+                          crossOrigin="anonymous"
                           alt="Preview"
                           className="w-12 h-12 rounded-full object-cover border border-border"
                         />
@@ -1680,6 +1708,7 @@ export default function ResumePage() {
                       {activeResume.photoUrl && (
                         <img 
                           src={getAbsolutePhotoUrl(activeResume.photoUrl)} 
+                          crossOrigin="anonymous"
                           alt="Profile" 
                           className="w-20 h-20 rounded-full object-cover border border-gray-300 flex-shrink-0" 
                         />
@@ -1913,6 +1942,7 @@ export default function ResumePage() {
                       {activeResume.photoUrl && (
                         <img 
                           src={getAbsolutePhotoUrl(activeResume.photoUrl)} 
+                          crossOrigin="anonymous"
                           alt="Profile" 
                           className="w-20 h-20 rounded-full mx-auto object-cover border-2 border-indigo-500 mb-1" 
                         />
