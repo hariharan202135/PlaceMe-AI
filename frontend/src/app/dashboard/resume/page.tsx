@@ -1209,7 +1209,7 @@ export default function ResumePage() {
                       <div className="relative w-12 h-12 flex-shrink-0">
                         <img
                           src={getAbsolutePhotoUrl(activeResume.photoUrl)}
-                          crossOrigin="anonymous"
+                          crossOrigin={activeResume.photoUrl?.startsWith('data:') ? undefined : 'anonymous'}
                           alt="Preview"
                           className="w-12 h-12 rounded-full object-cover border border-border"
                         />
@@ -1703,7 +1703,7 @@ export default function ResumePage() {
                       {activeResume.photoUrl && (
                         <img 
                           src={getAbsolutePhotoUrl(activeResume.photoUrl)} 
-                          crossOrigin="anonymous"
+                          crossOrigin={activeResume.photoUrl?.startsWith('data:') ? undefined : 'anonymous'}
                           alt="Profile" 
                           className="w-20 h-20 rounded-full object-cover border border-gray-300 flex-shrink-0" 
                         />
@@ -1937,7 +1937,7 @@ export default function ResumePage() {
                       {activeResume.photoUrl && (
                         <img 
                           src={getAbsolutePhotoUrl(activeResume.photoUrl)} 
-                          crossOrigin="anonymous"
+                          crossOrigin={activeResume.photoUrl?.startsWith('data:') ? undefined : 'anonymous'}
                           alt="Profile" 
                           className="w-20 h-20 rounded-full mx-auto object-cover border-2 border-indigo-500 mb-1" 
                         />
