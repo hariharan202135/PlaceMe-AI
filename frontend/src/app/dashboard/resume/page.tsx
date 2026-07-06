@@ -445,16 +445,30 @@ export default function ResumePage() {
       tempWrapper.style.boxSizing = 'border-box';
       tempWrapper.innerHTML = printContent.innerHTML;
 
-      // Filter out any broken or 404 images so html2canvas doesn't throw compilation errors
+      document.body.appendChild(tempWrapper);
+
+      // Wait for all images in the printable template to finish loading or error out
       const imgs = tempWrapper.querySelectorAll('img');
-      imgs.forEach(img => {
-        if (img.src && !img.src.startsWith('data:') && (img.naturalWidth === 0 || !img.complete)) {
-          console.warn('Removing broken image to prevent PDF crash:', img.src);
-          img.remove();
-        }
+      const promises = Array.from(imgs).map(img => {
+        return new Promise<void>((resolve) => {
+          if (img.complete) {
+            if (img.naturalWidth === 0) {
+              console.warn('Removing broken image:', img.src);
+              img.remove();
+            }
+            resolve();
+          } else {
+            img.onload = () => resolve();
+            img.onerror = () => {
+              console.warn('Removing broken image on load failure:', img.src);
+              img.remove();
+              resolve();
+            };
+          }
+        });
       });
 
-      document.body.appendChild(tempWrapper);
+      await Promise.all(promises);
       await html2pdf().from(tempWrapper).set(opt).save();
       document.body.removeChild(tempWrapper);
     } catch (err) {
