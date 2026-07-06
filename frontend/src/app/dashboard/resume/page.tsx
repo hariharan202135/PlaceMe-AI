@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import api from '@/lib/api';
 import { 
   FileText, ShieldCheck, Sparkles, AlertCircle, Info, 
@@ -76,7 +76,31 @@ export default function ResumePage() {
   };
   const [activeTab, setActiveTab] = useState<'analyser' | 'creator'>('analyser');
   
-  // ==========================================
+  // Mobile responsive scaling for resume preview
+  const [previewScale, setPreviewScale] = useState(1);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (previewContainerRef.current) {
+        const width = previewContainerRef.current.offsetWidth;
+        if (width < 800) {
+          setPreviewScale(width / 800);
+        } else {
+          setPreviewScale(1);
+        }
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    // Timeout helps ensure the container has rendered before measuring its width
+    const timer = setTimeout(handleResize, 500);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      clearTimeout(timer);
+    };
+  }, [activeTab]);
   // TAB 1: ANALYSER STATES & HANDLERS
   // ==========================================
   const [resumes, setResumes] = useState<IResumeAnalysis[]>([]);
@@ -373,85 +397,97 @@ export default function ResumePage() {
       setSavingCreator(false);
     }
 
-    // Check backend download permission
-    try {
-      const response = await api.post('/resume/download-started', { resumeId: resumeToUse._id });
-      if (response.data.success) {
-        // Permission granted (either first download, or paid token credit balance consumed)
-        if (format === 'pdf') {
-          printResumeToPDF(resumeToUse);
-        } else {
-          performDownloadWord(resumeToUse);
-        }
-        // Notify backend that download completed successfully
-        api.post('/resume/download-completed', { resumeId: resumeToUse._id }).catch(err => {
-          console.error('Error confirming download success:', err);
-        });
-      } else {
-        // Payment required (e.g. 2nd time download or more)
-        setCheckoutResumeId(resumeToUse._id || 'new-draft');
-        setShowCheckoutModal(true);
-      }
-    } catch (err) {
-      console.error('Error verifying download permission:', err);
-      setCheckoutResumeId(resumeToUse._id || 'new-draft');
-      setShowCheckoutModal(true);
+    // Perform the download directly (unlimited free downloads)
+    if (format === 'pdf') {
+      await printResumeToPDF(resumeToUse);
+    } else {
+      await performDownloadWord(resumeToUse);
     }
   };
 
-  const printResumeToPDF = (res: ISavedResume) => {
+  const [loadingPDF, setLoadingPDF] = useState(false);
+
+  const loadHtml2Pdf = () => {
+    return new Promise<any>((resolve, reject) => {
+      if ((window as any).html2pdf) {
+        resolve((window as any).html2pdf);
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+      script.onload = () => resolve((window as any).html2pdf);
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+  };
+
+  const printResumeToPDF = async (res: ISavedResume) => {
     const printContent = document.getElementById('printable-resume-preview');
     if (!printContent) return;
 
-    // Create a temporary style element to inject print CSS override
-    const style = document.createElement('style');
-    style.id = 'print-resume-style-override';
-    style.innerHTML = `
-      @media print {
-        /* Hide all page content during print */
-        body * {
-          visibility: hidden !important;
-        }
-        /* Make only the resume container and its children visible */
-        #printable-resume-preview, #printable-resume-preview * {
-          visibility: visible !important;
-        }
-        /* Position the resume container at the absolute top-left and apply margins as padding */
-        #printable-resume-preview {
-          position: absolute !important;
-          left: 0 !important;
-          top: 0 !important;
-          width: 100% !important;
-          padding: 20mm 15mm 20mm 15mm !important;
-          margin: 0 !important;
-          border: none !important;
-          box-shadow: none !important;
-          background: white !important;
-          color: black !important;
-          -webkit-print-color-adjust: exact !important;
-          print-color-adjust: exact !important;
-        }
-        /* Remove browser default print headers and footers (date, title, URL) */
-        @page {
-          size: A4 portrait;
-          margin: 0 !important;
-        }
-      }
-    `;
-    
-    document.head.appendChild(style);
-    window.print();
-    
-    // Clean up style tag after printing
-    setTimeout(() => {
-      const el = document.getElementById('print-resume-style-override');
-      if (el) el.remove();
-    }, 1000);
+    setLoadingPDF(true);
+    try {
+      const html2pdf = await loadHtml2Pdf();
+      
+      const opt = {
+        margin:       [0, 0, 0, 0],
+        filename:     `${res.name || 'Resume'}.pdf`,
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { 
+          scale: 2, 
+          useCORS: true, 
+          letterRendering: true,
+          backgroundColor: '#ffffff'
+        },
+        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      };
+
+      const tempWrapper = document.createElement('div');
+      tempWrapper.style.width = '210mm';
+      tempWrapper.style.background = '#ffffff';
+      tempWrapper.style.color = '#000000';
+      tempWrapper.style.padding = '20mm 15mm 20mm 15mm';
+      tempWrapper.style.boxSizing = 'border-box';
+      tempWrapper.innerHTML = printContent.innerHTML;
+
+      await html2pdf().from(tempWrapper).set(opt).save();
+    } catch (err) {
+      console.error('Error generating PDF:', err);
+      alert('Failed to generate PDF. Please try again.');
+    } finally {
+      setLoadingPDF(false);
+    }
   };
 
-  const performDownloadWord = (res: ISavedResume) => {
+  const getBase64Image = async (imgUrl: string): Promise<string> => {
+    try {
+      if (!imgUrl) return '';
+      if (imgUrl.startsWith('data:')) {
+        return imgUrl;
+      }
+      const response = await fetch(imgUrl);
+      const blob = await response.blob();
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } catch (e) {
+      console.error('Error fetching image for base64 conversion:', e);
+      return imgUrl;
+    }
+  };
+
+  const performDownloadWord = async (res: ISavedResume) => {
     // Convert relative photoUrl paths to absolute paths
     const absolutePhotoUrl = getAbsolutePhotoUrl(res.photoUrl);
+    
+    // Resolve base64 image data so that Microsoft Word can render it offline without network blockages
+    let wordPhotoUrl = '';
+    if (absolutePhotoUrl) {
+      wordPhotoUrl = await getBase64Image(absolutePhotoUrl);
+    }
 
     // Generate clean Word-compatible HTML layout
     const skillsRows = (res.skills || []).map(s => {
@@ -530,7 +566,6 @@ export default function ResumePage() {
       </div>
     `).join('');
 
-    // Dynamic column width calculation for achievements
     const achCount = (res.achievements || []).length;
     const colWidth = achCount === 1 ? '100%' : achCount === 2 ? '50%' : '33%';
 
@@ -587,9 +622,9 @@ export default function ResumePage() {
         <!-- Header -->
         <table border="0" cellpadding="0" cellspacing="0" style="width: 100%; border-bottom: 2px solid #000000; padding-bottom: 10px; margin-bottom: 15px;">
           <tr>
-            ${absolutePhotoUrl ? `
+            ${wordPhotoUrl ? `
             <td valign="top" style="width: 90px; padding-right: 15px;">
-              <img src="${absolutePhotoUrl}" width="70" height="70" style="border-radius: 35px; border: 1px solid #dddddd;" />
+              <img src="${wordPhotoUrl}" width="70" height="70" style="border-radius: 35px; border: 1px solid #dddddd;" />
             </td>
             ` : ''}
             <td valign="top" align="left">
@@ -632,7 +667,7 @@ export default function ResumePage() {
         <!-- Experience -->
         ${res.experience.length > 0 ? `
         <div>
-          <h3>Experience</h3>
+          <h3>Work Experience</h3>
           ${experienceBlocks}
         </div>
         ` : ''}
@@ -653,27 +688,32 @@ export default function ResumePage() {
         </div>
         ` : ''}
 
-        <!-- Achievements & Certifications -->
+        <!-- Achievements & Certifications Block (Side-by-side or stacked) -->
         ${(res.achievements.length > 0 || res.certifications.length > 0) ? `
-        <div>
-          <h3>Achievements & Certifications</h3>
-          
-          <!-- Achievements Grid -->
-          ${res.achievements.length > 0 ? `
-          <table border="0" cellpadding="4" cellspacing="8" style="width: 100%; margin-top: 5px;">
+        <div style="margin-top: 15px; font-family: Arial;">
+          <table border="0" cellpadding="0" cellspacing="0" style="width: 100%;">
             <tr>
-              ${achievementsList}
+              ${res.achievements.length > 0 ? `
+              <td valign="top" style="width: ${res.certifications.length > 0 ? '60%' : '100%'}; padding-right: 15px;">
+                <h3 style="text-align: left;">Achievements</h3>
+                <table border="0" cellpadding="0" cellspacing="0" style="width: 100%;">
+                  <tr>
+                    ${achievementsList}
+                  </tr>
+                </table>
+              </td>
+              ` : ''}
+              
+              ${res.certifications.length > 0 ? `
+              <td valign="top" style="width: ${res.achievements.length > 0 ? '40%' : '100%'};">
+                <h3 style="text-align: left;">Certifications</h3>
+                <div style="border: 1px solid #e5e7eb; padding: 10px; border-radius: 6px; background-color: #fafafa;">
+                  ${certificationsList}
+                </div>
+              </td>
+              ` : ''}
             </tr>
           </table>
-          ` : ''}
-
-          <!-- Certifications -->
-          ${res.certifications.length > 0 ? `
-          <div style="margin-top: 10px;">
-            ${certificationsList}
-          </div>
-          ` : ''}
-
         </div>
         ` : ''}
 
@@ -681,7 +721,6 @@ export default function ResumePage() {
       </html>
     `;
 
-    // Inject UTF-8 Byte Order Mark (BOM) to prevent MS Word emoji encoding bugs (Mojibake)
     const blob = new Blob(['\ufeff' + sourceHTML], { type: 'application/msword;charset=utf-8' });
     const fileDownload = document.createElement("a");
     const blobUrl = URL.createObjectURL(blob);
@@ -691,17 +730,10 @@ export default function ResumePage() {
     fileDownload.download = `${res.name.replace(/\s+/g, '_')}_Resume.doc`;
     fileDownload.click();
     
-    // Clean up
     setTimeout(() => {
       document.body.removeChild(fileDownload);
       URL.revokeObjectURL(blobUrl);
     }, 100);
-  };
-
-  const handleUpiAppClick = (appId: string) => {
-    setSelectedUpiPlatform(appId);
-    // Deep link directly to device UPI handlers (GPay/PhonePe/Paytm/BHIM)
-    window.location.href = "upi://pay?pa=9894995725@upi&pn=PlaceMeAI&am=5.00&cu=INR&tn=ResumeUnlock";
   };
 
   const handleSimulateCreatorPayment = async () => {
@@ -1605,11 +1637,16 @@ export default function ResumePage() {
                   </button>
 
                   <button
+                    disabled={loadingPDF}
                     onClick={() => handleRequestDownload('pdf')}
-                    className="p-2 bg-primary hover:bg-primary/95 text-primary-foreground font-bold rounded-xl text-xs flex items-center space-x-1.5 transition shadow"
+                    className="p-2 bg-primary hover:bg-primary/95 text-primary-foreground font-bold rounded-xl text-xs flex items-center space-x-1.5 transition shadow disabled:opacity-60"
                   >
-                    <Printer className="w-3.5 h-3.5" />
-                    <span>Download PDF / Print</span>
+                    {loadingPDF ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Printer className="w-3.5 h-3.5" />
+                    )}
+                    <span>{loadingPDF ? 'Downloading PDF...' : 'Download PDF'}</span>
                   </button>
                 </div>
               </div>
@@ -1619,8 +1656,21 @@ export default function ResumePage() {
                 💡 **Formatting Tips**: If you want to make manual adjustments or customize margins/spacings easily, download the **Word format** to edit in Microsoft Word or Google Docs!
               </div>
 
-              {/* Printable target container */}
-              <div className="border border-border bg-white text-black p-8 rounded-2xl min-h-[720px] font-sans shadow-xl text-left" id="printable-resume-preview">
+              {/* Responsive Container Wrapper with scaling and centering for small mobile viewports */}
+              <div 
+                ref={previewContainerRef}
+                className="w-full overflow-x-auto overflow-y-hidden pb-4 flex justify-center"
+                style={{ minHeight: `${720 * previewScale}px` }}
+              >
+                <div 
+                  style={{
+                    transform: `scale(${previewScale})`,
+                    transformOrigin: 'top center',
+                    width: '800px', // Standard desktop width
+                    flexShrink: 0
+                  }}
+                >
+                  <div className="border border-border bg-white text-black p-8 rounded-2xl min-h-[720px] font-sans shadow-xl text-left" id="printable-resume-preview">
                 {/* 1. Classic Layout (ATS Friendly - Enhancv Style) */}
                 {activeResume.template === 'classic' && (
                   <div className="space-y-5 text-sm text-gray-900">
@@ -2084,117 +2134,6 @@ export default function ResumePage() {
             </div>
           </div>
         </div>
-      )}
-
-      {/* Simulated ₹5 Checkout Payment Modal */}
-      {showCheckoutModal && (
-        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-card border border-border p-6 rounded-3xl max-w-sm w-full space-y-4 shadow-2xl relative overflow-hidden text-center text-left">
-            <div className="absolute -top-10 -left-10 w-32 h-32 bg-primary/10 rounded-full blur-3xl" />
-            <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mx-auto text-primary">
-              <Star className="w-6 h-6 animate-pulse" />
-            </div>
-            
-            <div className="space-y-1.5 text-center">
-              <span className="text-[10px] bg-primary/10 text-primary px-2.5 py-0.5 rounded-full font-bold uppercase tracking-widest inline-block mx-auto">
-                Trainee Checkout
-              </span>
-              <h3 className="text-lg font-black text-foreground">Unlock Resume Download</h3>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Your first resume is free! To download/print additional resume layout templates, there is a flat platform charge of just **₹5**. **Active subscribers get unlimited downloads for free!**
-              </p>
-            </div>
-
-            {/* Step 1: Select UPI Platform */}
-            <div className="space-y-2">
-              <label className="text-[10.5px] font-bold text-muted-foreground block text-left">
-                1. Select UPI App:
-              </label>
-              <div className="grid grid-cols-4 gap-2">
-                {[
-                  { id: 'gpay', label: 'GPay', color: 'border-blue-500 bg-blue-500/5' },
-                  { id: 'phonepe', label: 'PhonePe', color: 'border-purple-500 bg-purple-500/5' },
-                  { id: 'paytm', label: 'Paytm', color: 'border-cyan-500 bg-cyan-500/5' },
-                  { id: 'bhim', label: 'BHIM', color: 'border-emerald-500 bg-emerald-500/5' }
-                ].map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => handleUpiAppClick(p.id)}
-                    className={`p-2 border rounded-xl text-center text-[10px] font-bold transition flex flex-col items-center justify-center space-y-1 ${
-                      selectedUpiPlatform === p.id 
-                        ? `${p.color} border-2 text-foreground` 
-                        : 'border-border bg-background hover:bg-card/50 text-muted-foreground'
-                    }`}
-                  >
-                    <span>{p.label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Step 2: Display QR Code */}
-            <div className="p-4 bg-background border border-border rounded-2xl flex flex-col items-center space-y-3">
-              <div className="text-[10.5px] font-bold text-muted-foreground">
-                2. Scan QR Code to pay ₹5:
-              </div>
-              <div className="p-2 bg-white border border-gray-200 rounded-xl shadow-inner">
-                <img 
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent('upi://pay?pa=9894995725@upi&pn=PlaceMeAI&am=5.00&cu=INR&tn=ResumeUnlock')}`} 
-                  alt="UPI QR Code" 
-                  className="w-32 h-32"
-                />
-              </div>
-              <div className="text-[10px] text-muted-foreground text-center font-semibold">
-                Scan using any UPI App to transfer ₹5
-              </div>
-            </div>
-
-            {/* Step 3: Enter Transaction ID */}
-            <div className="space-y-1.5 text-left">
-              <label className="text-[10px] font-bold text-muted-foreground block">
-                3. Enter 12-Digit UPI Transaction/UTR Ref No. after transferring ₹5 to 9894995725:
-              </label>
-              <input
-                type="text"
-                maxLength={12}
-                value={upiTxRef}
-                onChange={(e) => setUpiTxRef(e.target.value)}
-                placeholder="e.g. 123456789012"
-                className="w-full bg-background border border-border rounded-xl px-3 py-2 text-xs font-mono font-bold text-foreground focus:outline-none focus:border-primary"
-                disabled={verifyingPayment}
-              />
-            </div>
-
-            <div className="flex flex-col gap-2 pt-1">
-              <button
-                type="button"
-                disabled={verifyingPayment}
-                onClick={handleSimulateCreatorPayment}
-                className="w-full bg-primary hover:bg-primary/95 text-primary-foreground font-bold py-2.5 rounded-xl text-xs transition disabled:opacity-60 flex items-center justify-center space-x-1.5"
-              >
-                {verifyingPayment ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Verifying UPI UTR Reference...</span>
-                  </>
-                ) : (
-                  <span>Verify & Unlock Download</span>
-                )}
-              </button>
-              <button
-                type="button"
-                disabled={verifyingPayment}
-                onClick={() => {
-                  setShowCheckoutModal(false);
-                  setCheckoutResumeId(null);
-                  setUpiTxRef('');
-                }}
-                className="w-full bg-background border border-border hover:bg-card/50 text-foreground font-bold py-2.5 rounded-xl text-xs transition"
-              >
-                Cancel Checkout
-              </button>
-            </div>
           </div>
         </div>
       )}
