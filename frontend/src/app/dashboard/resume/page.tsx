@@ -459,6 +459,15 @@ export default function ResumePage() {
       tempWrapper.style.boxSizing = 'border-box';
       tempWrapper.innerHTML = printContent.innerHTML;
 
+      // Filter out any broken or 404 images so html2canvas doesn't throw compilation errors
+      const imgs = tempWrapper.querySelectorAll('img');
+      imgs.forEach(img => {
+        if (img.src && !img.src.startsWith('data:') && (img.naturalWidth === 0 || !img.complete)) {
+          console.warn('Removing broken image to prevent PDF crash:', img.src);
+          img.remove();
+        }
+      });
+
       document.body.appendChild(tempWrapper);
       await html2pdf().from(tempWrapper).set(opt).save();
       document.body.removeChild(tempWrapper);

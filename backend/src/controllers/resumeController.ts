@@ -148,26 +148,6 @@ export const saveUserResume = async (req: AuthRequest, res: Response) => {
   const { id, template, name, role, email, phone, linkedin, github, photoUrl, summary, skills, experience, projects, education, achievements, certifications } = req.body;
 
   let savedPhotoUrl = photoUrl;
-  if (photoUrl && photoUrl.startsWith('data:image/')) {
-    try {
-      const matches = photoUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-      if (matches && matches.length === 3) {
-        const ext = matches[1].split('/')[1] || 'png';
-        const dataBuffer = Buffer.from(matches[2], 'base64');
-        const filename = `${req.user._id}-${Date.now()}.${ext}`;
-        const uploadDir = path.join(__dirname, '../../uploads');
-        
-        if (!fs.existsSync(uploadDir)) {
-          fs.mkdirSync(uploadDir, { recursive: true });
-        }
-        
-        fs.writeFileSync(path.join(uploadDir, filename), dataBuffer);
-        savedPhotoUrl = `/uploads/${filename}`;
-      }
-    } catch (e) {
-      console.error('Failed to write base64 image:', e);
-    }
-  }
 
   try {
     if (id) {
