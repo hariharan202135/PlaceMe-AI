@@ -413,27 +413,13 @@ export default function ResumePage() {
 
   const [loadingPDF, setLoadingPDF] = useState(false);
 
-  const loadHtml2Pdf = () => {
-    return new Promise<any>((resolve, reject) => {
-      if ((window as any).html2pdf) {
-        resolve((window as any).html2pdf);
-        return;
-      }
-      const script = document.createElement('script');
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
-      script.onload = () => resolve((window as any).html2pdf);
-      script.onerror = reject;
-      document.head.appendChild(script);
-    });
-  };
-
   const printResumeToPDF = async (res: ISavedResume) => {
     const printContent = document.getElementById('printable-resume-preview');
     if (!printContent) return;
 
     setLoadingPDF(true);
     try {
-      const html2pdf = await loadHtml2Pdf();
+      const html2pdf = (await import('html2pdf.js')).default;
       
       const opt = {
         margin:       [0, 0, 0, 0],
