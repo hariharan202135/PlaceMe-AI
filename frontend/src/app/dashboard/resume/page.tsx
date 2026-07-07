@@ -100,7 +100,7 @@ export default function ResumePage() {
       window.removeEventListener('resize', handleResize);
       clearTimeout(timer);
     };
-  }, [activeTab, activeResume.template, activeResume?._id]);
+  }, [activeTab, activeResume?.template, activeResume?._id]);
   // TAB 1: ANALYSER STATES & HANDLERS
   // ==========================================
   const [resumes, setResumes] = useState<IResumeAnalysis[]>([]);
