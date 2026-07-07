@@ -441,6 +441,16 @@ export default function ResumePage() {
     if (!printContent) return;
 
     setLoadingPDF(true);
+
+    // Backups for style tag sanitization and link disabling
+    const linkTags = Array.from(document.querySelectorAll('link[rel="stylesheet"]')) as HTMLLinkElement[];
+    const tempStyleTags: HTMLStyleElement[] = [];
+    const styleTags = Array.from(document.querySelectorAll('style'));
+    const styleBackups = styleTags.map(tag => ({
+      tag,
+      content: tag.innerHTML
+    }));
+
     try {
       const html2pdf = await loadHtml2Pdf();
       
@@ -457,6 +467,38 @@ export default function ResumePage() {
         jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
       };
 
+      // 1. Sanitize all link stylesheets by inlining and stripping modern color spaces
+      for (const link of linkTags) {
+        try {
+          const response = await fetch(link.href);
+          if (response.ok) {
+            let cssText = await response.text();
+            cssText = cssText.replace(/oklch\([^)]+\)/g, 'rgb(0,0,0)');
+            cssText = cssText.replace(/oklab\([^)]+\)/g, 'rgb(0,0,0)');
+            cssText = cssText.replace(/lab\([^)]+\)/g, 'rgb(0,0,0)');
+            cssText = cssText.replace(/lch\([^)]+\)/g, 'rgb(0,0,0)');
+            
+            const style = document.createElement('style');
+            style.innerHTML = cssText;
+            document.head.appendChild(style);
+            tempStyleTags.push(style);
+            link.disabled = true;
+          }
+        } catch (e) {
+          console.error('Failed to inline and sanitize external stylesheet:', link.href, e);
+        }
+      }
+
+      // 2. Sanitize existing style tags
+      styleTags.forEach(tag => {
+        let css = tag.innerHTML;
+        css = css.replace(/oklch\([^)]+\)/g, 'rgb(0,0,0)');
+        css = css.replace(/oklab\([^)]+\)/g, 'rgb(0,0,0)');
+        css = css.replace(/lab\([^)]+\)/g, 'rgb(0,0,0)');
+        css = css.replace(/lch\([^)]+\)/g, 'rgb(0,0,0)');
+        tag.innerHTML = css;
+      });
+
       const tempWrapper = document.createElement('div');
       tempWrapper.style.position = 'absolute';
       tempWrapper.style.left = '-9999px';
@@ -468,7 +510,7 @@ export default function ResumePage() {
       tempWrapper.style.boxSizing = 'border-box';
       tempWrapper.innerHTML = printContent.innerHTML;
 
-      // Clean up modern colors (oklch, oklab, lab, lch) to prevent html2canvas crashes
+      // Clean up modern colors inline as well
       const translateColorToRgb = (colorStr: string): string => {
         if (!colorStr) return '';
         const lower = colorStr.toLowerCase();
@@ -480,7 +522,7 @@ export default function ResumePage() {
             const ctx = canvas.getContext('2d');
             if (ctx) {
               ctx.fillStyle = colorStr;
-              return ctx.fillStyle; // Resolved to standard hex/rgb by the browser!
+              return ctx.fillStyle;
             }
           } catch (e) {
             console.error('Failed to translate color:', colorStr, e);
@@ -549,6 +591,14 @@ export default function ResumePage() {
       console.error('Error generating PDF:', err);
       alert('Failed to generate PDF. Error details: ' + (err?.message || err));
     } finally {
+      // Restore all links and clean temp styles
+      tempStyleTags.forEach(style => style.remove());
+      linkTags.forEach(link => {
+        link.disabled = false;
+      });
+      styleBackups.forEach(backup => {
+        backup.tag.innerHTML = backup.content;
+      });
       setLoadingPDF(false);
     }
   };
