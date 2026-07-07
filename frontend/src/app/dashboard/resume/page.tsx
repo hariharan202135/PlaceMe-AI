@@ -468,6 +468,57 @@ export default function ResumePage() {
       tempWrapper.style.boxSizing = 'border-box';
       tempWrapper.innerHTML = printContent.innerHTML;
 
+      // Clean up modern colors (oklch, oklab, lab, lch) to prevent html2canvas crashes
+      const translateColorToRgb = (colorStr: string): string => {
+        if (!colorStr) return '';
+        const lower = colorStr.toLowerCase();
+        if (lower.includes('oklch') || lower.includes('oklab') || lower.includes('lab') || lower.includes('lch')) {
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1;
+            canvas.height = 1;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.fillStyle = colorStr;
+              return ctx.fillStyle; // Resolved to standard hex/rgb by the browser!
+            }
+          } catch (e) {
+            console.error('Failed to translate color:', colorStr, e);
+          }
+        }
+        return colorStr;
+      };
+
+      const allEls = tempWrapper.querySelectorAll('*');
+      allEls.forEach((el: any) => {
+        const computed = window.getComputedStyle(el);
+        const color = computed.color;
+        const bg = computed.backgroundColor;
+        const borderTop = computed.borderTopColor;
+        const borderRight = computed.borderRightColor;
+        const borderBottom = computed.borderBottomColor;
+        const borderLeft = computed.borderLeftColor;
+
+        if (color && (color.includes('oklch') || color.includes('oklab') || color.includes('lab') || color.includes('lch'))) {
+          el.style.color = translateColorToRgb(color);
+        }
+        if (bg && (bg.includes('oklch') || bg.includes('oklab') || bg.includes('lab') || bg.includes('lch'))) {
+          el.style.backgroundColor = translateColorToRgb(bg);
+        }
+        if (borderTop && (borderTop.includes('oklch') || borderTop.includes('oklab') || borderTop.includes('lab') || borderTop.includes('lch'))) {
+          el.style.borderTopColor = translateColorToRgb(borderTop);
+        }
+        if (borderRight && (borderRight.includes('oklch') || borderRight.includes('oklab') || borderRight.includes('lab') || borderRight.includes('lch'))) {
+          el.style.borderRightColor = translateColorToRgb(borderRight);
+        }
+        if (borderBottom && (borderBottom.includes('oklch') || borderBottom.includes('oklab') || borderBottom.includes('lab') || borderBottom.includes('lch'))) {
+          el.style.borderBottomColor = translateColorToRgb(borderBottom);
+        }
+        if (borderLeft && (borderLeft.includes('oklch') || borderLeft.includes('oklab') || borderLeft.includes('lab') || borderLeft.includes('lch'))) {
+          el.style.borderLeftColor = translateColorToRgb(borderLeft);
+        }
+      });
+
       document.body.appendChild(tempWrapper);
 
       // Wait for all images in the printable template to finish loading or error out
@@ -579,12 +630,13 @@ export default function ResumePage() {
   };
 
   const performDownloadWord = async (res: ISavedResume) => {
-    let wordPhotoUrl = '';
-    if (res._id) {
-      wordPhotoUrl = getAbsolutePhotoUrl(`/api/resume/photo/${res._id}`);
-    } else if (res.photoUrl) {
-      wordPhotoUrl = await getBase64Image(getAbsolutePhotoUrl(res.photoUrl));
-    }
+    try {
+      let wordPhotoUrl = '';
+      if (res._id) {
+        wordPhotoUrl = getAbsolutePhotoUrl(`/api/resume/photo/${res._id}`);
+      } else if (res.photoUrl) {
+        wordPhotoUrl = await getBase64Image(getAbsolutePhotoUrl(res.photoUrl));
+      }
 
     // Generate clean Word-compatible HTML layout
     const skillsRows = (res.skills || []).map(s => {
@@ -836,6 +888,10 @@ export default function ResumePage() {
         document.body.removeChild(fileDownload);
         URL.revokeObjectURL(blobUrl);
       }, 100);
+    }
+    } catch (err: any) {
+      console.error('Error generating Word document:', err);
+      alert('Failed to generate Word document. Error details: ' + (err?.message || err));
     }
   };
 
