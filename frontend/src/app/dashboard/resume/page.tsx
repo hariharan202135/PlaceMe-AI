@@ -467,35 +467,28 @@ export default function ResumePage() {
 
       // 1. Serialize all same-origin stylesheets in-memory and sanitize their color functions
       let combinedCss = '';
-      Array.from(document.styleSheets).forEach((sheet) => {
+      // 1. Fetch external link stylesheets via HTTP fetch with same-origin credentials to bypass CORS/Security blocks
+      const inlinePromises = linkTags.map(async (link) => {
         try {
-          const rules = sheet.cssRules || sheet.rules;
-          if (rules) {
-            Array.from(rules).forEach((rule) => {
-              combinedCss += rule.cssText + '\n';
-            });
+          const response = await fetch(link.href, { credentials: 'same-origin' });
+          if (response.ok) {
+            let cssText = await response.text();
+            cssText = cssText.replace(/oklch\([^)]+\)/g, 'rgb(0,0,0)');
+            cssText = cssText.replace(/oklab\([^)]+\)/g, 'rgb(0,0,0)');
+            cssText = cssText.replace(/lab\([^)]+\)/g, 'rgb(0,0,0)');
+            cssText = cssText.replace(/lch\([^)]+\)/g, 'rgb(0,0,0)');
+            
+            const style = document.createElement('style');
+            style.innerHTML = cssText;
+            document.head.appendChild(style);
+            tempStyleTags.push(style);
+            link.disabled = true;
           }
         } catch (e) {
-          console.warn('Could not read cssRules from stylesheet in-memory:', sheet.href, e);
+          console.error('Failed to inline and sanitize external stylesheet:', link.href, e);
         }
       });
-
-      if (combinedCss) {
-        combinedCss = combinedCss.replace(/oklch\([^)]+\)/g, 'rgb(0,0,0)');
-        combinedCss = combinedCss.replace(/oklab\([^)]+\)/g, 'rgb(0,0,0)');
-        combinedCss = combinedCss.replace(/lab\([^)]+\)/g, 'rgb(0,0,0)');
-        combinedCss = combinedCss.replace(/lch\([^)]+\)/g, 'rgb(0,0,0)');
-
-        const style = document.createElement('style');
-        style.innerHTML = combinedCss;
-        document.head.appendChild(style);
-        tempStyleTags.push(style);
-
-        // Temporarily disable the external link tags
-        linkTags.forEach(link => {
-          link.disabled = true;
-        });
-      }
+      await Promise.all(inlinePromises);
 
       // 2. Sanitize existing style tags
       styleTags.forEach(tag => {
@@ -507,10 +500,11 @@ export default function ResumePage() {
         tag.innerHTML = css;
       });
 
+      // 3. Create printing layout element positioned fixed below the viewport to prevent canvas clipping
       const tempWrapper = document.createElement('div');
-      tempWrapper.style.position = 'absolute';
-      tempWrapper.style.left = '-9999px';
-      tempWrapper.style.top = '0';
+      tempWrapper.style.position = 'fixed';
+      tempWrapper.style.top = '100vh';
+      tempWrapper.style.left = '0';
       tempWrapper.style.width = '210mm';
       tempWrapper.style.background = '#ffffff';
       tempWrapper.style.color = '#000000';
