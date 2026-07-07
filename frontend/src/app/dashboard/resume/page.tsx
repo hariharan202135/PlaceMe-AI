@@ -428,7 +428,7 @@ export default function ResumePage() {
         .then(code => {
           // Replace the throwing color parser statement with a safe return 0 (transparent color)
           const patchedCode = code.replace(
-            /throw\s+new\s+Error\(\s*(['"])Attempting to parse an unsupported color function \1\s*\+\s*e\.name\s*\+\s*\1.*?\1\s*\)/g,
+            /throw\s+new\s+Error\(\s*['"]Attempting to parse an unsupported color function\s*['"].*?\)/g,
             'return 0'
           );
           
