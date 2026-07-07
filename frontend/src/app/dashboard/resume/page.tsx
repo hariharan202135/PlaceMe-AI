@@ -465,37 +465,28 @@ export default function ResumePage() {
         jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
       };
 
-      // 1. Serialize all same-origin stylesheets in-memory and sanitize their color functions
-      let combinedCss = '';
-      Array.from(document.styleSheets).forEach((sheet) => {
+      // 1. Fetch external link stylesheets via HTTP fetch in parallel with same-origin credentials to bypass DOM security blocks
+      const inlinePromises = linkTags.map(async (link) => {
         try {
-          const rules = sheet.cssRules || sheet.rules;
-          if (rules) {
-            Array.from(rules).forEach((rule) => {
-              combinedCss += rule.cssText + '\n';
-            });
+          const response = await fetch(link.href, { credentials: 'same-origin' });
+          if (response.ok) {
+            let cssText = await response.text();
+            cssText = cssText.replace(/oklch\([^)]+\)/g, 'rgb(0,0,0)');
+            cssText = cssText.replace(/oklab\([^)]+\)/g, 'rgb(0,0,0)');
+            cssText = cssText.replace(/lab\([^)]+\)/g, 'rgb(0,0,0)');
+            cssText = cssText.replace(/lch\([^)]+\)/g, 'rgb(0,0,0)');
+            
+            const style = document.createElement('style');
+            style.innerHTML = cssText;
+            document.head.appendChild(style);
+            tempStyleTags.push(style);
+            link.disabled = true;
           }
         } catch (e) {
-          // Ignore cross-origin security exceptions
+          console.error('Failed to inline and sanitize external stylesheet:', link.href, e);
         }
       });
-
-      if (combinedCss) {
-        combinedCss = combinedCss.replace(/oklch\([^)]+\)/g, 'rgb(0,0,0)');
-        combinedCss = combinedCss.replace(/oklab\([^)]+\)/g, 'rgb(0,0,0)');
-        combinedCss = combinedCss.replace(/lab\([^)]+\)/g, 'rgb(0,0,0)');
-        combinedCss = combinedCss.replace(/lch\([^)]+\)/g, 'rgb(0,0,0)');
-
-        const style = document.createElement('style');
-        style.innerHTML = combinedCss;
-        document.head.appendChild(style);
-        tempStyleTags.push(style);
-
-        // Only disable original links if we successfully copied and sanitized their content in-memory
-        linkTags.forEach(link => {
-          link.disabled = true;
-        });
-      }
+      await Promise.all(inlinePromises);
 
       // 2. Sanitize existing style tags
       styleTags.forEach(tag => {
