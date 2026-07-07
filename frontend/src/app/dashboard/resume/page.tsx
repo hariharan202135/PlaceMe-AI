@@ -100,7 +100,7 @@ export default function ResumePage() {
       window.removeEventListener('resize', handleResize);
       clearTimeout(timer);
     };
-  }, [activeTab]);
+  }, [activeTab, activeResume.template, activeResume?._id]);
   // TAB 1: ANALYSER STATES & HANDLERS
   // ==========================================
   const [resumes, setResumes] = useState<IResumeAnalysis[]>([]);
@@ -384,34 +384,55 @@ export default function ResumePage() {
 
     let resumeToUse = activeResume;
 
-    // Automatically save draft to cloud first to sync changes and get an ID
-    setSavingCreator(true);
-    try {
-      const payload = {
-        id: activeResume._id,
-        ...activeResume
-      };
-      const saveRes = await api.post('/resume/create', payload);
-      if (saveRes.data.success) {
-        resumeToUse = saveRes.data.resume;
-        setActiveResume(resumeToUse);
-        fetchCreatorResumes();
-      }
-    } catch (err) {
-      console.error('Auto-save before download failed:', err);
-    } finally {
-      setSavingCreator(false);
-    }
+    // Auto-save draft in the background (fire-and-forget) to sync changes and get an ID, without delaying the download thread.
+    // This allows the browser to trigger downloads synchronously in the user-click frame, bypassing mobile pop-up blockers.
+    const payload = {
+      id: activeResume._id,
+      ...activeResume
+    };
+    api.post('/resume/create', payload)
+      .then(saveRes => {
+        if (saveRes.data.success) {
+          setActiveResume(saveRes.data.resume);
+          fetchCreatorResumes();
+        }
+      })
+      .catch(err => {
+        console.error('Background draft save failed:', err);
+      });
 
-    // Perform the download directly (unlimited free downloads)
     if (format === 'pdf') {
-      await printResumeToPDF(resumeToUse);
+      await printResumeToPDF(activeResume);
     } else {
-      await performDownloadWord(resumeToUse);
+      await performDownloadWord(activeResume);
     }
   };
 
   const [loadingPDF, setLoadingPDF] = useState(false);
+
+  const loadHtml2Pdf = () => {
+    return new Promise<any>((resolve, reject) => {
+      if (typeof window === 'undefined') {
+        reject(new Error('Window is undefined'));
+        return;
+      }
+      if ((window as any).html2pdf) {
+        resolve((window as any).html2pdf);
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+      script.onload = () => {
+        if ((window as any).html2pdf) {
+          resolve((window as any).html2pdf);
+        } else {
+          reject(new Error('html2pdf not found on window after script load'));
+        }
+      };
+      script.onerror = () => reject(new Error('Failed to load html2pdf script from CDN'));
+      document.head.appendChild(script);
+    });
+  };
 
   const printResumeToPDF = async (res: ISavedResume) => {
     const printContent = document.getElementById('printable-resume-preview');
@@ -419,7 +440,7 @@ export default function ResumePage() {
 
     setLoadingPDF(true);
     try {
-      const html2pdf = (await import('html2pdf.js')).default;
+      const html2pdf = await loadHtml2Pdf();
       
       const opt = {
         margin:       [0, 0, 0, 0],
@@ -471,9 +492,9 @@ export default function ResumePage() {
       await Promise.all(promises);
       await html2pdf().from(tempWrapper).set(opt).save();
       document.body.removeChild(tempWrapper);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error generating PDF:', err);
-      alert('Failed to generate PDF. Please try again.');
+      alert('Failed to generate PDF. Error details: ' + (err?.message || err));
     } finally {
       setLoadingPDF(false);
     }
@@ -516,13 +537,11 @@ export default function ResumePage() {
   };
 
   const performDownloadWord = async (res: ISavedResume) => {
-    // Convert relative photoUrl paths to absolute paths
-    const absolutePhotoUrl = getAbsolutePhotoUrl(res.photoUrl);
-    
-    // Resolve base64 image data so that Microsoft Word can render it offline without network blockages
     let wordPhotoUrl = '';
-    if (absolutePhotoUrl) {
-      wordPhotoUrl = await getBase64Image(absolutePhotoUrl);
+    if (res._id) {
+      wordPhotoUrl = getAbsolutePhotoUrl(`/api/resume/photo/${res._id}`);
+    } else if (res.photoUrl) {
+      wordPhotoUrl = await getBase64Image(getAbsolutePhotoUrl(res.photoUrl));
     }
 
     // Generate clean Word-compatible HTML layout
@@ -758,18 +777,24 @@ export default function ResumePage() {
     `;
 
     const blob = new Blob(['\ufeff' + sourceHTML], { type: 'application/msword;charset=utf-8' });
-    const fileDownload = document.createElement("a");
     const blobUrl = URL.createObjectURL(blob);
     
-    document.body.appendChild(fileDownload);
-    fileDownload.href = blobUrl;
-    fileDownload.download = `${res.name.replace(/\s+/g, '_')}_Resume.doc`;
-    fileDownload.click();
-    
-    setTimeout(() => {
-      document.body.removeChild(fileDownload);
-      URL.revokeObjectURL(blobUrl);
-    }, 100);
+    if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+      window.location.href = blobUrl;
+      setTimeout(() => {
+        URL.revokeObjectURL(blobUrl);
+      }, 5000);
+    } else {
+      const fileDownload = document.createElement("a");
+      document.body.appendChild(fileDownload);
+      fileDownload.href = blobUrl;
+      fileDownload.download = `${res.name.replace(/\s+/g, '_')}_Resume.doc`;
+      fileDownload.click();
+      setTimeout(() => {
+        document.body.removeChild(fileDownload);
+        URL.revokeObjectURL(blobUrl);
+      }, 100);
+    }
   };
 
   const handleSimulateCreatorPayment = async () => {
@@ -1696,18 +1721,19 @@ export default function ResumePage() {
               {/* Responsive Container Wrapper with scaling and centering for small mobile viewports */}
               <div 
                 ref={previewContainerRef}
-                className="w-full overflow-x-auto overflow-y-hidden pb-4 flex justify-center"
-                style={{ minHeight: `${720 * previewScale}px` }}
+                className="w-full overflow-hidden flex justify-center items-start"
+                style={{ height: `${1130 * previewScale}px` }}
               >
                 <div 
                   style={{
                     transform: `scale(${previewScale})`,
                     transformOrigin: 'top center',
                     width: '800px', // Standard desktop width
+                    height: '1130px', // Standard A4 height
                     flexShrink: 0
                   }}
                 >
-                  <div className="border border-border bg-white text-black p-8 rounded-2xl min-h-[720px] font-sans shadow-xl text-left" id="printable-resume-preview">
+                  <div className="border border-border bg-white text-black p-8 rounded-2xl min-h-[1130px] font-sans shadow-xl text-left" id="printable-resume-preview">
                 {/* 1. Classic Layout (ATS Friendly - Enhancv Style) */}
                 {activeResume.template === 'classic' && (
                   <div className="space-y-5 text-sm text-gray-900">

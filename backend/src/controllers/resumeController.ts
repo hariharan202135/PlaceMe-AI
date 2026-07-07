@@ -1,4 +1,4 @@
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import pdf from 'pdf-parse';
@@ -367,5 +367,30 @@ export const processDownloadPayment = async (req: AuthRequest, res: Response) =>
   } catch (error) {
     console.error('Error processing download payment:', error);
     res.status(500).json({ success: false, message: 'Server error processing payment' });
+  }
+};
+
+// 10. Serve Resume Photo as binary stream for Word compatibility
+export const getResumePhoto = async (req: Request, res: Response) => {
+  try {
+    const resume = await UserResume.findById(req.params.id);
+    if (!resume || !resume.photoUrl) {
+      return res.status(404).send('Not Found');
+    }
+
+    if (resume.photoUrl.startsWith('data:image/')) {
+      const matches = resume.photoUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+      if (matches && matches.length === 3) {
+        const contentType = matches[1];
+        const dataBuffer = Buffer.from(matches[2], 'base64');
+        res.contentType(contentType);
+        return res.send(dataBuffer);
+      }
+    }
+
+    return res.redirect(resume.photoUrl);
+  } catch (error) {
+    console.error('Error retrieving resume photo:', error);
+    res.status(500).send('Server Error');
   }
 };
