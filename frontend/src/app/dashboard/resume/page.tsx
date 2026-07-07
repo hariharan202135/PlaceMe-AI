@@ -80,27 +80,7 @@ export default function ResumePage() {
   const [previewScale, setPreviewScale] = useState(1);
   const previewContainerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const handleResize = () => {
-      if (previewContainerRef.current) {
-        const width = previewContainerRef.current.offsetWidth;
-        if (width < 800) {
-          setPreviewScale(width / 800);
-        } else {
-          setPreviewScale(1);
-        }
-      }
-    };
 
-    window.addEventListener('resize', handleResize);
-    // Timeout helps ensure the container has rendered before measuring its width
-    const timer = setTimeout(handleResize, 500);
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      clearTimeout(timer);
-    };
-  }, [activeTab, activeResume?.template, activeResume?._id]);
   // TAB 1: ANALYSER STATES & HANDLERS
   // ==========================================
   const [resumes, setResumes] = useState<IResumeAnalysis[]>([]);
@@ -233,6 +213,28 @@ export default function ResumePage() {
   const [savingCreator, setSavingCreator] = useState(false);
   const [creatorMsg, setCreatorMsg] = useState('');
   const [creatorResumesLoading, setCreatorResumesLoading] = useState(false);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (previewContainerRef.current) {
+        const width = previewContainerRef.current.offsetWidth;
+        if (width < 800) {
+          setPreviewScale(width / 800);
+        } else {
+          setPreviewScale(1);
+        }
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    // Timeout helps ensure the container has rendered before measuring its width
+    const timer = setTimeout(handleResize, 500);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      clearTimeout(timer);
+    };
+  }, [activeTab, activeResume?.template, activeResume?._id]);
 
   // Payment overlays
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
