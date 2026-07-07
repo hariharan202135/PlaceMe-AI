@@ -235,38 +235,6 @@ export default function ResumePage() {
       clearTimeout(timer);
     };
   }, [activeTab, activeResume?.template, activeResume?._id]);
-
-  const sanitizedCssCacheRef = useRef<string[]>([]);
-
-  useEffect(() => {
-    const prefetchStylesheets = async () => {
-      try {
-        const linkTags = Array.from(document.querySelectorAll('link[rel="stylesheet"]')) as HTMLLinkElement[];
-        const promises = linkTags.map(async (link) => {
-          try {
-            const response = await fetch(link.href);
-            if (response.ok) {
-              let cssText = await response.text();
-              cssText = cssText.replace(/oklch\([^)]+\)/g, 'rgb(0,0,0)');
-              cssText = cssText.replace(/oklab\([^)]+\)/g, 'rgb(0,0,0)');
-              cssText = cssText.replace(/lab\([^)]+\)/g, 'rgb(0,0,0)');
-              cssText = cssText.replace(/lch\([^)]+\)/g, 'rgb(0,0,0)');
-              return cssText;
-            }
-          } catch (e) {
-            console.error('Failed to pre-fetch stylesheet:', link.href, e);
-          }
-          return '';
-        });
-        const results = await Promise.all(promises);
-        sanitizedCssCacheRef.current = results.filter(Boolean);
-      } catch (err) {
-        console.error('Failed to run prefetchStylesheets:', err);
-      }
-    };
-    prefetchStylesheets();
-  }, []);
-
   // Payment overlays
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
   const [checkoutResumeId, setCheckoutResumeId] = useState<string | null>(null);
@@ -473,7 +441,6 @@ export default function ResumePage() {
 
     setLoadingPDF(true);
 
-    // Backups for style tag sanitization and link disabling
     const linkTags = Array.from(document.querySelectorAll('link[rel="stylesheet"]')) as HTMLLinkElement[];
     const tempStyleTags: HTMLStyleElement[] = [];
     const styleTags = Array.from(document.querySelectorAll('style'));
@@ -498,40 +465,36 @@ export default function ResumePage() {
         jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
       };
 
-      // 1. Sanitize all link stylesheets by inlining and stripping modern color spaces
-      // Use cached styles if available to respond instantly, else fetch in parallel as a fallback
-      if (sanitizedCssCacheRef.current && sanitizedCssCacheRef.current.length > 0) {
-        sanitizedCssCacheRef.current.forEach(cssText => {
-          const style = document.createElement('style');
-          style.innerHTML = cssText;
-          document.head.appendChild(style);
-          tempStyleTags.push(style);
-        });
+      // 1. Serialize all same-origin stylesheets in-memory and sanitize their color functions
+      let combinedCss = '';
+      Array.from(document.styleSheets).forEach((sheet) => {
+        try {
+          const rules = sheet.cssRules || sheet.rules;
+          if (rules) {
+            Array.from(rules).forEach((rule) => {
+              combinedCss += rule.cssText + '\n';
+            });
+          }
+        } catch (e) {
+          console.warn('Could not read cssRules from stylesheet in-memory:', sheet.href, e);
+        }
+      });
+
+      if (combinedCss) {
+        combinedCss = combinedCss.replace(/oklch\([^)]+\)/g, 'rgb(0,0,0)');
+        combinedCss = combinedCss.replace(/oklab\([^)]+\)/g, 'rgb(0,0,0)');
+        combinedCss = combinedCss.replace(/lab\([^)]+\)/g, 'rgb(0,0,0)');
+        combinedCss = combinedCss.replace(/lch\([^)]+\)/g, 'rgb(0,0,0)');
+
+        const style = document.createElement('style');
+        style.innerHTML = combinedCss;
+        document.head.appendChild(style);
+        tempStyleTags.push(style);
+
+        // Temporarily disable the external link tags
         linkTags.forEach(link => {
           link.disabled = true;
         });
-      } else {
-        const inlinePromises = linkTags.map(async (link) => {
-          try {
-            const response = await fetch(link.href);
-            if (response.ok) {
-              let cssText = await response.text();
-              cssText = cssText.replace(/oklch\([^)]+\)/g, 'rgb(0,0,0)');
-              cssText = cssText.replace(/oklab\([^)]+\)/g, 'rgb(0,0,0)');
-              cssText = cssText.replace(/lab\([^)]+\)/g, 'rgb(0,0,0)');
-              cssText = cssText.replace(/lch\([^)]+\)/g, 'rgb(0,0,0)');
-              
-              const style = document.createElement('style');
-              style.innerHTML = cssText;
-              document.head.appendChild(style);
-              tempStyleTags.push(style);
-              link.disabled = true;
-            }
-          } catch (e) {
-            console.error('Failed to inline and sanitize external stylesheet:', link.href, e);
-          }
-        });
-        await Promise.all(inlinePromises);
       }
 
       // 2. Sanitize existing style tags
