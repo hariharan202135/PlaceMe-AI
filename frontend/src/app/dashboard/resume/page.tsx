@@ -421,17 +421,35 @@ export default function ResumePage() {
         resolve((window as any).html2pdf);
         return;
       }
-      const script = document.createElement('script');
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
-      script.onload = () => {
-        if ((window as any).html2pdf) {
-          resolve((window as any).html2pdf);
-        } else {
-          reject(new Error('html2pdf not found on window after script load'));
-        }
-      };
-      script.onerror = () => reject(new Error('Failed to load html2pdf script from CDN'));
-      document.head.appendChild(script);
+      
+      // Fetch the bundle, patch the color parsing crash, and execute it!
+      fetch('https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js')
+        .then(res => res.text())
+        .then(code => {
+          // Replace the throwing color parser statement with a safe return 0 (transparent color)
+          const patchedCode = code.replace(
+            /throw\s+new\s+Error\(\s*(['"])Attempting to parse an unsupported color function \1\s*\+\s*e\.name\s*\+\s*\1.*?\1\s*\)/g,
+            'return 0'
+          );
+          
+          const blob = new Blob([patchedCode], { type: 'application/javascript' });
+          const script = document.createElement('script');
+          script.src = URL.createObjectURL(blob);
+          script.onload = () => {
+            URL.revokeObjectURL(script.src);
+            resolve((window as any).html2pdf);
+          };
+          script.onerror = () => reject(new Error('Failed to load patched html2pdf script'));
+          document.head.appendChild(script);
+        })
+        .catch(err => {
+          console.error('Failed to patch html2pdf, falling back to standard load:', err);
+          const script = document.createElement('script');
+          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+          script.onload = () => resolve((window as any).html2pdf);
+          script.onerror = () => reject(new Error('Failed to load html2pdf script from CDN'));
+          document.head.appendChild(script);
+        });
     });
   };
 
@@ -440,14 +458,6 @@ export default function ResumePage() {
     if (!printContent) return;
 
     setLoadingPDF(true);
-
-    const linkTags = Array.from(document.querySelectorAll('link[rel="stylesheet"]')) as HTMLLinkElement[];
-    const tempStyleTags: HTMLStyleElement[] = [];
-    const styleTags = Array.from(document.querySelectorAll('style'));
-    const styleBackups = styleTags.map(tag => ({
-      tag,
-      content: tag.innerHTML
-    }));
 
     try {
       const html2pdf = await loadHtml2Pdf();
@@ -465,40 +475,7 @@ export default function ResumePage() {
         jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
       };
 
-      // 1. Fetch external link stylesheets via HTTP fetch in parallel with same-origin credentials to bypass DOM security blocks
-      const inlinePromises = linkTags.map(async (link) => {
-        try {
-          const response = await fetch(link.href, { credentials: 'same-origin' });
-          if (response.ok) {
-            let cssText = await response.text();
-            cssText = cssText.replace(/oklch\([^)]+\)/g, 'rgb(0,0,0)');
-            cssText = cssText.replace(/oklab\([^)]+\)/g, 'rgb(0,0,0)');
-            cssText = cssText.replace(/lab\([^)]+\)/g, 'rgb(0,0,0)');
-            cssText = cssText.replace(/lch\([^)]+\)/g, 'rgb(0,0,0)');
-            
-            const style = document.createElement('style');
-            style.innerHTML = cssText;
-            document.head.appendChild(style);
-            tempStyleTags.push(style);
-            link.disabled = true;
-          }
-        } catch (e) {
-          console.error('Failed to inline and sanitize external stylesheet:', link.href, e);
-        }
-      });
-      await Promise.all(inlinePromises);
-
-      // 2. Sanitize existing style tags
-      styleTags.forEach(tag => {
-        let css = tag.innerHTML;
-        css = css.replace(/oklch\([^)]+\)/g, 'rgb(0,0,0)');
-        css = css.replace(/oklab\([^)]+\)/g, 'rgb(0,0,0)');
-        css = css.replace(/lab\([^)]+\)/g, 'rgb(0,0,0)');
-        css = css.replace(/lch\([^)]+\)/g, 'rgb(0,0,0)');
-        tag.innerHTML = css;
-      });
-
-      // 3. Create printing layout element positioned behind the viewport (z-index) at top: 0 to prevent canvas clipping
+      // Create a temporary clone container positioned behind the page UI (zIndex) to compile the document
       const tempWrapper = document.createElement('div');
       tempWrapper.style.position = 'absolute';
       tempWrapper.style.top = '0';
@@ -510,57 +487,6 @@ export default function ResumePage() {
       tempWrapper.style.padding = '20mm 15mm 20mm 15mm';
       tempWrapper.style.boxSizing = 'border-box';
       tempWrapper.innerHTML = printContent.innerHTML;
-
-      // Clean up modern colors inline as well
-      const translateColorToRgb = (colorStr: string): string => {
-        if (!colorStr) return '';
-        const lower = colorStr.toLowerCase();
-        if (lower.includes('oklch') || lower.includes('oklab') || lower.includes('lab') || lower.includes('lch')) {
-          try {
-            const canvas = document.createElement('canvas');
-            canvas.width = 1;
-            canvas.height = 1;
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-              ctx.fillStyle = colorStr;
-              return ctx.fillStyle;
-            }
-          } catch (e) {
-            console.error('Failed to translate color:', colorStr, e);
-          }
-        }
-        return colorStr;
-      };
-
-      const allEls = tempWrapper.querySelectorAll('*');
-      allEls.forEach((el: any) => {
-        const computed = window.getComputedStyle(el);
-        const color = computed.color;
-        const bg = computed.backgroundColor;
-        const borderTop = computed.borderTopColor;
-        const borderRight = computed.borderRightColor;
-        const borderBottom = computed.borderBottomColor;
-        const borderLeft = computed.borderLeftColor;
-
-        if (color && (color.includes('oklch') || color.includes('oklab') || color.includes('lab') || color.includes('lch'))) {
-          el.style.color = translateColorToRgb(color);
-        }
-        if (bg && (bg.includes('oklch') || bg.includes('oklab') || bg.includes('lab') || bg.includes('lch'))) {
-          el.style.backgroundColor = translateColorToRgb(bg);
-        }
-        if (borderTop && (borderTop.includes('oklch') || borderTop.includes('oklab') || borderTop.includes('lab') || borderTop.includes('lch'))) {
-          el.style.borderTopColor = translateColorToRgb(borderTop);
-        }
-        if (borderRight && (borderRight.includes('oklch') || borderRight.includes('oklab') || borderRight.includes('lab') || borderRight.includes('lch'))) {
-          el.style.borderRightColor = translateColorToRgb(borderRight);
-        }
-        if (borderBottom && (borderBottom.includes('oklch') || borderBottom.includes('oklab') || borderBottom.includes('lab') || borderBottom.includes('lch'))) {
-          el.style.borderBottomColor = translateColorToRgb(borderBottom);
-        }
-        if (borderLeft && (borderLeft.includes('oklch') || borderLeft.includes('oklab') || borderLeft.includes('lab') || borderLeft.includes('lch'))) {
-          el.style.borderLeftColor = translateColorToRgb(borderLeft);
-        }
-      });
 
       document.body.appendChild(tempWrapper);
 
@@ -578,8 +504,8 @@ export default function ResumePage() {
       });
       await Promise.all(promises);
 
-      // Wait for the browser to recalculate styles and finish reflowing before capturing the PDF
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Wait a short tick for rendering/layout completion
+      await new Promise(resolve => setTimeout(resolve, 50));
 
       await html2pdf().from(tempWrapper).set(opt).save();
       document.body.removeChild(tempWrapper);
@@ -587,14 +513,6 @@ export default function ResumePage() {
       console.error('Error generating PDF:', err);
       alert('Failed to generate PDF. Error details: ' + (err?.message || err));
     } finally {
-      // Restore all links and clean temp styles
-      tempStyleTags.forEach(style => style.remove());
-      linkTags.forEach(link => {
-        link.disabled = false;
-      });
-      styleBackups.forEach(backup => {
-        backup.tag.innerHTML = backup.content;
-      });
       setLoadingPDF(false);
     }
   };
