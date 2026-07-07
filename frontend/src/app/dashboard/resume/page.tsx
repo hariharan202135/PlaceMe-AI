@@ -250,7 +250,7 @@ export default function ResumePage() {
         setSavedResumes(list);
         if (list.length > 0) {
           const updated = await ensurePhotoIsBase64(list[0]);
-          setActiveResume(updated);
+          setActiveResume(normalizeResume(updated));
         }
       }
     } catch (err) {
@@ -336,7 +336,7 @@ export default function ResumePage() {
       const res = await api.post('/resume/create', payload);
       if (res.data.success) {
         setCreatorMsg('✨ Resume saved successfully!');
-        setActiveResume(res.data.resume);
+        setActiveResume(normalizeResume(res.data.resume));
         fetchCreatorResumes();
       }
     } catch (err: any) {
@@ -349,7 +349,7 @@ export default function ResumePage() {
 
   const handleSelectResumeFromHistory = async (res: ISavedResume) => {
     const updated = await ensurePhotoIsBase64(res);
-    setActiveResume(updated);
+    setActiveResume(normalizeResume(updated));
     setCreatorMsg('');
   };
 
@@ -393,7 +393,7 @@ export default function ResumePage() {
     api.post('/resume/create', payload)
       .then(saveRes => {
         if (saveRes.data.success) {
-          setActiveResume(saveRes.data.resume);
+          setActiveResume(normalizeResume(saveRes.data.resume));
           fetchCreatorResumes();
         }
       })
@@ -534,6 +534,46 @@ export default function ResumePage() {
       }
     }
     return resume;
+  };
+
+  const normalizeResume = (resume: any): ISavedResume => {
+    if (!resume) {
+      return {
+        template: 'classic',
+        name: '',
+        role: '',
+        email: '',
+        phone: '',
+        linkedin: '',
+        github: '',
+        photoUrl: '',
+        summary: '',
+        skills: [],
+        experience: [],
+        projects: [],
+        education: [],
+        achievements: [],
+        certifications: []
+      };
+    }
+    return {
+      template: resume.template || 'classic',
+      name: resume.name || '',
+      role: resume.role || '',
+      email: resume.email || '',
+      phone: resume.phone || '',
+      linkedin: resume.linkedin || '',
+      github: resume.github || '',
+      photoUrl: resume.photoUrl || '',
+      summary: resume.summary || '',
+      skills: Array.isArray(resume.skills) ? resume.skills : [],
+      experience: Array.isArray(resume.experience) ? resume.experience : [],
+      projects: Array.isArray(resume.projects) ? resume.projects : [],
+      education: Array.isArray(resume.education) ? resume.education : [],
+      achievements: Array.isArray(resume.achievements) ? resume.achievements : [],
+      certifications: Array.isArray(resume.certifications) ? resume.certifications : [],
+      _id: resume._id
+    };
   };
 
   const performDownloadWord = async (res: ISavedResume) => {
