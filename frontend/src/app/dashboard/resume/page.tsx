@@ -622,6 +622,9 @@ export default function ResumePage() {
       });
       await Promise.all(promises);
 
+      // Wait for the browser to recalculate styles and finish reflowing before capturing the PDF
+      await new Promise(resolve => setTimeout(resolve, 100));
+
       await html2pdf().from(tempWrapper).set(opt).save();
       document.body.removeChild(tempWrapper);
     } catch (err: any) {
