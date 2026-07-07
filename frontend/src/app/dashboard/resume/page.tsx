@@ -236,6 +236,37 @@ export default function ResumePage() {
     };
   }, [activeTab, activeResume?.template, activeResume?._id]);
 
+  const sanitizedCssCacheRef = useRef<string[]>([]);
+
+  useEffect(() => {
+    const prefetchStylesheets = async () => {
+      try {
+        const linkTags = Array.from(document.querySelectorAll('link[rel="stylesheet"]')) as HTMLLinkElement[];
+        const promises = linkTags.map(async (link) => {
+          try {
+            const response = await fetch(link.href);
+            if (response.ok) {
+              let cssText = await response.text();
+              cssText = cssText.replace(/oklch\([^)]+\)/g, 'rgb(0,0,0)');
+              cssText = cssText.replace(/oklab\([^)]+\)/g, 'rgb(0,0,0)');
+              cssText = cssText.replace(/lab\([^)]+\)/g, 'rgb(0,0,0)');
+              cssText = cssText.replace(/lch\([^)]+\)/g, 'rgb(0,0,0)');
+              return cssText;
+            }
+          } catch (e) {
+            console.error('Failed to pre-fetch stylesheet:', link.href, e);
+          }
+          return '';
+        });
+        const results = await Promise.all(promises);
+        sanitizedCssCacheRef.current = results.filter(Boolean);
+      } catch (err) {
+        console.error('Failed to run prefetchStylesheets:', err);
+      }
+    };
+    prefetchStylesheets();
+  }, []);
+
   // Payment overlays
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
   const [checkoutResumeId, setCheckoutResumeId] = useState<string | null>(null);
@@ -468,25 +499,39 @@ export default function ResumePage() {
       };
 
       // 1. Sanitize all link stylesheets by inlining and stripping modern color spaces
-      for (const link of linkTags) {
-        try {
-          const response = await fetch(link.href);
-          if (response.ok) {
-            let cssText = await response.text();
-            cssText = cssText.replace(/oklch\([^)]+\)/g, 'rgb(0,0,0)');
-            cssText = cssText.replace(/oklab\([^)]+\)/g, 'rgb(0,0,0)');
-            cssText = cssText.replace(/lab\([^)]+\)/g, 'rgb(0,0,0)');
-            cssText = cssText.replace(/lch\([^)]+\)/g, 'rgb(0,0,0)');
-            
-            const style = document.createElement('style');
-            style.innerHTML = cssText;
-            document.head.appendChild(style);
-            tempStyleTags.push(style);
-            link.disabled = true;
+      // Use cached styles if available to respond instantly, else fetch in parallel as a fallback
+      if (sanitizedCssCacheRef.current && sanitizedCssCacheRef.current.length > 0) {
+        sanitizedCssCacheRef.current.forEach(cssText => {
+          const style = document.createElement('style');
+          style.innerHTML = cssText;
+          document.head.appendChild(style);
+          tempStyleTags.push(style);
+        });
+        linkTags.forEach(link => {
+          link.disabled = true;
+        });
+      } else {
+        const inlinePromises = linkTags.map(async (link) => {
+          try {
+            const response = await fetch(link.href);
+            if (response.ok) {
+              let cssText = await response.text();
+              cssText = cssText.replace(/oklch\([^)]+\)/g, 'rgb(0,0,0)');
+              cssText = cssText.replace(/oklab\([^)]+\)/g, 'rgb(0,0,0)');
+              cssText = cssText.replace(/lab\([^)]+\)/g, 'rgb(0,0,0)');
+              cssText = cssText.replace(/lch\([^)]+\)/g, 'rgb(0,0,0)');
+              
+              const style = document.createElement('style');
+              style.innerHTML = cssText;
+              document.head.appendChild(style);
+              tempStyleTags.push(style);
+              link.disabled = true;
+            }
+          } catch (e) {
+            console.error('Failed to inline and sanitize external stylesheet:', link.href, e);
           }
-        } catch (e) {
-          console.error('Failed to inline and sanitize external stylesheet:', link.href, e);
-        }
+        });
+        await Promise.all(inlinePromises);
       }
 
       // 2. Sanitize existing style tags
@@ -563,28 +608,20 @@ export default function ResumePage() {
 
       document.body.appendChild(tempWrapper);
 
-      // Wait for all images in the printable template to finish loading or error out
+      // Convert all remote images in tempWrapper to base64 to ensure they render in the PDF
       const imgs = tempWrapper.querySelectorAll('img');
-      const promises = Array.from(imgs).map(img => {
-        return new Promise<void>((resolve) => {
-          if (img.complete) {
-            if (img.naturalWidth === 0) {
-              console.warn('Removing broken image:', img.src);
-              img.remove();
-            }
-            resolve();
-          } else {
-            img.onload = () => resolve();
-            img.onerror = () => {
-              console.warn('Removing broken image on load failure:', img.src);
-              img.remove();
-              resolve();
-            };
+      const promises = Array.from(imgs).map(async (img) => {
+        if (img.src && !img.src.startsWith('data:')) {
+          try {
+            const base64 = await getBase64Image(img.src);
+            img.src = base64;
+          } catch (e) {
+            console.warn('Failed to inline image for PDF:', img.src, e);
           }
-        });
+        }
       });
-
       await Promise.all(promises);
+
       await html2pdf().from(tempWrapper).set(opt).save();
       document.body.removeChild(tempWrapper);
     } catch (err: any) {
@@ -681,11 +718,32 @@ export default function ResumePage() {
 
   const performDownloadWord = async (res: ISavedResume) => {
     try {
-      let wordPhotoUrl = '';
-      if (res._id) {
-        wordPhotoUrl = getAbsolutePhotoUrl(`/api/resume/photo/${res._id}`);
-      } else if (res.photoUrl) {
-        wordPhotoUrl = await getBase64Image(getAbsolutePhotoUrl(res.photoUrl));
+      let base64Photo = '';
+      let mimeType = 'image/png';
+      
+      const photoSrc = res.photoUrl || '';
+      if (photoSrc) {
+        let base64String = '';
+        if (photoSrc.startsWith('data:')) {
+          base64String = photoSrc;
+        } else {
+          try {
+            base64String = await getBase64Image(getAbsolutePhotoUrl(photoSrc));
+          } catch (e) {
+            console.error('Failed to get base64 image for Word:', e);
+          }
+        }
+        
+        if (base64String.startsWith('data:')) {
+          const parts = base64String.split(';');
+          if (parts.length > 1) {
+            mimeType = parts[0].replace('data:', '');
+            const dataParts = parts[1].split(',');
+            if (dataParts.length > 1) {
+              base64Photo = dataParts[1];
+            }
+          }
+        }
       }
 
     // Generate clean Word-compatible HTML layout
@@ -821,9 +879,9 @@ export default function ResumePage() {
         <!-- Header -->
         <table border="0" cellpadding="0" cellspacing="0" style="width: 100%; border-bottom: 2px solid #000000; padding-bottom: 10px; margin-bottom: 15px;">
           <tr>
-            ${wordPhotoUrl ? `
+            ${base64Photo ? `
             <td valign="top" style="width: 90px; padding-right: 15px;">
-              <img src="${wordPhotoUrl}" width="70" height="70" style="border-radius: 35px; border: 1px solid #dddddd;" />
+              <img src="cid:resume-photo" width="70" height="70" style="border-radius: 35px; border: 1px solid #dddddd;" />
             </td>
             ` : ''}
             <td valign="top" align="left">
@@ -920,7 +978,33 @@ export default function ResumePage() {
       </html>
     `;
 
-    const blob = new Blob(['\ufeff' + sourceHTML], { type: 'application/msword;charset=utf-8' });
+    let fileContent = '';
+    let blobType = 'application/msword;charset=utf-8';
+    
+    if (base64Photo) {
+      blobType = 'message/rfc822';
+      fileContent = `MIME-Version: 1.0
+Content-Type: multipart/related; boundary="next-part"; type="text/html"
+
+--next-part
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+
+${sourceHTML}
+
+--next-part
+Content-Type: ${mimeType}
+Content-Transfer-Encoding: base64
+Content-ID: <resume-photo>
+
+${base64Photo}
+
+--next-part--`;
+    } else {
+      fileContent = '\ufeff' + sourceHTML;
+    }
+
+    const blob = new Blob([fileContent], { type: blobType });
     const blobUrl = URL.createObjectURL(blob);
     
     if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
