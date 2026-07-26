@@ -476,77 +476,28 @@ export default function ResumePage() {
     });
   };
 
-  const sanitizeContainerColors = (container: HTMLElement) => {
-    if (!container) return;
-    const canvasCtx = typeof document !== 'undefined' ? document.createElement('canvas').getContext('2d') : null;
-    const allEls = container.querySelectorAll('*');
-
-    allEls.forEach((el: any) => {
-      if (!el || !el.style) return;
-      try {
-        const computed = window.getComputedStyle(el);
-        const colorProps = ['color', 'backgroundColor', 'borderColor', 'borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor'];
-
-        colorProps.forEach((prop) => {
-          const val = computed[prop as any];
-          if (val && (val.includes('oklch') || val.includes('oklab') || val.includes('lab') || val.includes('lch') || val.includes('var(') || val.includes('color('))) {
-            if (canvasCtx) {
-              try {
-                canvasCtx.fillStyle = val;
-                const hex = canvasCtx.fillStyle;
-                if (hex && hex !== '#000000' && hex !== 'rgba(0, 0, 0, 0)' && /^#[0-9a-fA-F]{6}$/.test(hex)) {
-                  el.style[prop] = hex;
-                  return;
-                }
-              } catch (e) {}
-            }
-            if (prop === 'color') el.style.color = '#111827';
-            if (prop === 'backgroundColor') el.style.backgroundColor = '#ffffff';
-            if (prop.includes('Color')) el.style[prop] = '#e5e7eb';
-          }
-        });
-      } catch (e) {}
-    });
-  };
-
   const printResumeToPDF = async (res: ISavedResume) => {
     if (activeTab !== 'creator') {
       setActiveTab('creator');
       await new Promise(r => setTimeout(r, 200));
     }
 
-    // 1. Target element selection with fallback
-    let printContent = document.getElementById('printable-resume-preview');
-    if (!printContent || printContent.offsetHeight === 0 || printContent.children.length === 0) {
-      printContent = document.querySelector('[data-resume-preview]') || document.querySelector('.resume-preview-container') as HTMLElement;
-    }
-
+    // 1. Target the live visible resume preview element directly
+    const printContent = document.getElementById('printable-resume-preview');
     if (!printContent) {
-      alert('Could not find resume preview to export.');
+      alert('Could not find live resume preview to export.');
       return;
     }
 
-    const rect = printContent.getBoundingClientRect();
-    console.log('PDF Export Target Element Metrics:', {
-      id: printContent.id,
-      offsetWidth: printContent.offsetWidth,
-      offsetHeight: printContent.offsetHeight,
-      childCount: printContent.children.length,
-      rectWidth: rect.width,
-      rectHeight: rect.height,
-      outerHTMLSnippet: printContent.outerHTML.substring(0, 300)
-    });
-
     if (printContent.offsetWidth === 0 || printContent.offsetHeight === 0) {
-      alert('Resume preview container is currently hidden or collapsed. Please ensure the preview tab is visible.');
+      alert('Resume preview container is hidden or collapsed. Please ensure the preview is visible.');
       return;
     }
 
     setLoadingPDF(true);
-    let tempWrapper: HTMLDivElement | null = null;
 
     try {
-      // 2. Wait for document fonts and layout to settle
+      // 2. Await font rendering
       if (typeof document !== 'undefined' && document.fonts) {
         try {
           await document.fonts.ready;
@@ -560,49 +511,7 @@ export default function ResumePage() {
 
       const safeName = (res?.name || 'Resume').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
 
-      // 3. Create fixed top-level container attached to active viewport
-      tempWrapper = document.createElement('div');
-      tempWrapper.id = 'pdf-printable-container';
-      tempWrapper.style.position = 'fixed';
-      tempWrapper.style.top = '0';
-      tempWrapper.style.left = '0';
-      tempWrapper.style.width = '210mm';
-      tempWrapper.style.minHeight = '297mm';
-      tempWrapper.style.zIndex = '99999';
-      tempWrapper.style.background = '#ffffff';
-      tempWrapper.style.color = '#111827';
-      tempWrapper.style.padding = '15mm';
-      tempWrapper.style.boxSizing = 'border-box';
-      tempWrapper.style.overflow = 'visible';
-      tempWrapper.style.pointerEvents = 'none';
-      tempWrapper.style.opacity = '0.999';
-
-      // Clone original preview DOM node directly, retaining all Tailwind layout & typography classes
-      const clonedPreview = printContent.cloneNode(true) as HTMLElement;
-      clonedPreview.style.transform = 'none'; // reset scale transform if scaled for mobile viewports
-      clonedPreview.style.width = '100%';
-      clonedPreview.style.height = 'auto';
-
-      tempWrapper.appendChild(clonedPreview);
-      document.body.appendChild(tempWrapper);
-
-      // 4. Inline all remote images (including avatar photo) to base64
-      const imgs = Array.from(tempWrapper.querySelectorAll('img'));
-      await Promise.all(imgs.map(async (img) => {
-        if (img.src && !img.src.startsWith('data:')) {
-          try {
-            const base64 = await getBase64Image(img.src);
-            img.src = base64;
-          } catch (e) {
-            console.warn('Failed to inline image for PDF:', img.src, e);
-          }
-        }
-      }));
-
-      // 5. Sanitize element color declarations (replace oklch/lab/var with explicit Hex colors)
-      sanitizeContainerColors(tempWrapper);
-
-      // 6. Configure html2pdf with onclone style text patcher (retains style tags while replacing lab/oklch colors)
+      // 3. Configure html2pdf options to capture directly from live printContent
       const opt = {
         margin:       [0, 0, 0, 0],
         filename:     `${safeName}_Resume.pdf`,
@@ -614,10 +523,8 @@ export default function ResumePage() {
           letterRendering: true,
           backgroundColor: '#ffffff',
           logging: true,
-          scrollX: 0,
-          scrollY: 0,
           onclone: (clonedDoc: Document) => {
-            // Patch CSS text in cloned style tags rather than removing style tags!
+            // Replace modern unsupported CSS color functions in cloned document style tags
             const styleTags = clonedDoc.querySelectorAll('style');
             styleTags.forEach((tag) => {
               if (tag.textContent) {
@@ -629,25 +536,17 @@ export default function ResumePage() {
                   .replace(/color\([^)]+\)/gi, '#111827');
               }
             });
-            if (clonedDoc.body) {
-              clonedDoc.body.style.background = '#ffffff';
-              clonedDoc.body.style.color = '#111827';
-            }
           }
         },
         jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
       };
 
-      await new Promise(resolve => setTimeout(resolve, 200));
-
-      await html2pdf().from(tempWrapper).set(opt).save();
+      // 4. Export PDF directly from live DOM node
+      await html2pdf().from(printContent).set(opt).save();
     } catch (err: any) {
       console.error('Error generating PDF:', err);
       alert('Failed to generate PDF. Error details: ' + (err?.message || err));
     } finally {
-      if (tempWrapper && tempWrapper.parentNode) {
-        tempWrapper.parentNode.removeChild(tempWrapper);
-      }
       setLoadingPDF(false);
     }
   };
