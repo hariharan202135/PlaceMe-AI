@@ -474,6 +474,38 @@ export default function ResumePage() {
       script.onerror = () => reject(new Error('Failed to load html2pdf script'));
       document.head.appendChild(script);
     });
+  const sanitizeContainerColors = (container: HTMLElement) => {
+    if (!container) return;
+    const canvasCtx = typeof document !== 'undefined' ? document.createElement('canvas').getContext('2d') : null;
+    const allEls = container.querySelectorAll('*');
+
+    allEls.forEach((el: any) => {
+      if (!el || !el.style) return;
+      try {
+        const computed = window.getComputedStyle(el);
+        const props = ['color', 'backgroundColor', 'borderColor', 'borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor'];
+
+        props.forEach((prop) => {
+          const val = computed[prop as any];
+          if (val && (val.includes('oklch') || val.includes('oklab') || val.includes('lab') || val.includes('lch') || val.includes('var(') || val.includes('color('))) {
+            if (canvasCtx) {
+              try {
+                canvasCtx.fillStyle = val;
+                const hex = canvasCtx.fillStyle;
+                if (hex && hex !== '#000000' && hex !== 'rgba(0, 0, 0, 0)') {
+                  el.style[prop] = hex;
+                  return;
+                }
+              } catch (e) {}
+            }
+            if (prop === 'color') el.style.color = '#111827';
+            if (prop === 'backgroundColor') el.style.backgroundColor = '#ffffff';
+          }
+        });
+      } catch (e) {
+        console.warn('Error sanitizing element color:', e);
+      }
+    });
   };
 
   const printResumeToPDF = async (res: ISavedResume) => {
