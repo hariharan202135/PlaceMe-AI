@@ -476,38 +476,79 @@ export default function ResumePage() {
     });
   };
 
-  const sanitizeContainerColors = (container: HTMLElement) => {
-    if (!container) return;
-    const canvasCtx = typeof document !== 'undefined' ? document.createElement('canvas').getContext('2d') : null;
-    const allEls = container.querySelectorAll('*');
-
-    allEls.forEach((el: any) => {
-      if (!el || !el.style) return;
+  const toHexOrRgb = (colorStr: string, defaultFallback: string = '#111827'): string => {
+    if (!colorStr || colorStr === 'transparent' || colorStr === 'inherit' || colorStr === 'initial' || colorStr === 'none') {
+      return defaultFallback;
+    }
+    if (/^#(?:[0-9a-fA-F]{3}){1,2}$/.test(colorStr) || /^rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)$/.test(colorStr)) {
+      return colorStr;
+    }
+    if (typeof document !== 'undefined') {
       try {
-        const computed = window.getComputedStyle(el);
-        const props = ['color', 'backgroundColor', 'borderColor', 'borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor'];
-
-        props.forEach((prop) => {
-          const val = computed[prop as any];
-          if (val && (val.includes('oklch') || val.includes('oklab') || val.includes('lab') || val.includes('lch') || val.includes('var(') || val.includes('color('))) {
-            if (canvasCtx) {
-              try {
-                canvasCtx.fillStyle = val;
-                const hex = canvasCtx.fillStyle;
-                if (hex && hex !== '#000000' && hex !== 'rgba(0, 0, 0, 0)') {
-                  el.style[prop] = hex;
-                  return;
-                }
-              } catch (e) {}
-            }
-            if (prop === 'color') el.style.color = '#111827';
-            if (prop === 'backgroundColor') el.style.backgroundColor = '#ffffff';
+        const canvasCtx = document.createElement('canvas').getContext('2d');
+        if (canvasCtx) {
+          canvasCtx.fillStyle = colorStr;
+          const hex = canvasCtx.fillStyle;
+          if (hex && hex !== '#000000' && /^#[0-9a-fA-F]{6}$/.test(hex)) {
+            return hex;
           }
-        });
-      } catch (e) {
-        console.warn('Error sanitizing element color:', e);
+        }
+      } catch (e) {}
+    }
+    return defaultFallback;
+  };
+
+  const createCleanInlineClone = (sourceEl: HTMLElement): HTMLElement => {
+    const clone = sourceEl.cloneNode(true) as HTMLElement;
+    const sourceNodes = [sourceEl, ...Array.from(sourceEl.querySelectorAll('*'))];
+    const cloneNodes = [clone, ...Array.from(clone.querySelectorAll('*'))];
+
+    const colorProps = ['color', 'backgroundColor', 'borderColor', 'borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor'];
+
+    sourceNodes.forEach((srcNode, index) => {
+      const targetNode = cloneNodes[index] as HTMLElement;
+      if (!targetNode || !srcNode) return;
+
+      if (srcNode.nodeType === Node.ELEMENT_NODE) {
+        try {
+          const computed = window.getComputedStyle(srcNode as HTMLElement);
+
+          targetNode.style.fontFamily = 'Arial, Helvetica, sans-serif';
+          if (computed.fontSize) targetNode.style.fontSize = computed.fontSize;
+          if (computed.fontWeight) targetNode.style.fontWeight = computed.fontWeight;
+          if (computed.lineHeight) targetNode.style.lineHeight = computed.lineHeight;
+          if (computed.letterSpacing) targetNode.style.letterSpacing = computed.letterSpacing;
+          if (computed.textAlign) targetNode.style.textAlign = computed.textAlign;
+          if (computed.textTransform) targetNode.style.textTransform = computed.textTransform;
+          if (computed.whiteSpace) targetNode.style.whiteSpace = computed.whiteSpace;
+          targetNode.style.boxSizing = 'border-box';
+          if (computed.display) targetNode.style.display = computed.display === 'inline' ? 'inline-block' : computed.display;
+          if (computed.flexDirection) targetNode.style.flexDirection = computed.flexDirection;
+          if (computed.justifyContent) targetNode.style.justifyContent = computed.justifyContent;
+          if (computed.alignItems) targetNode.style.alignItems = computed.alignItems;
+          if (computed.gap) targetNode.style.gap = computed.gap;
+
+          if (computed.padding) targetNode.style.padding = computed.padding;
+          if (computed.margin) targetNode.style.margin = computed.margin;
+          if (computed.borderRadius) targetNode.style.borderRadius = computed.borderRadius;
+
+          colorProps.forEach((prop) => {
+            const val = computed[prop as any];
+            if (val && val !== 'rgba(0, 0, 0, 0)' && val !== 'transparent') {
+              const fallback = prop === 'color' ? '#111827' : prop === 'backgroundColor' ? '#ffffff' : '#e5e7eb';
+              targetNode.style[prop as any] = toHexOrRgb(val, fallback);
+            }
+          });
+
+          // Strip class attributes to neutralize Tailwind class matching
+          targetNode.removeAttribute('class');
+        } catch (e) {
+          console.warn('Error inlining computed node style:', e);
+        }
       }
     });
+
+    return clone;
   };
 
   const printResumeToPDF = async (res: ISavedResume) => {
@@ -531,6 +572,7 @@ export default function ResumePage() {
 
       const safeName = (res?.name || 'Resume').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
 
+      // Create isolated top-level container locked to viewport
       tempWrapper = document.createElement('div');
       tempWrapper.id = 'pdf-printable-container';
       tempWrapper.style.position = 'fixed';
@@ -541,15 +583,19 @@ export default function ResumePage() {
       tempWrapper.style.zIndex = '99999';
       tempWrapper.style.background = '#ffffff';
       tempWrapper.style.color = '#000000';
-      tempWrapper.style.padding = '15mm 15mm 15mm 15mm';
+      tempWrapper.style.padding = '15mm';
       tempWrapper.style.boxSizing = 'border-box';
       tempWrapper.style.overflow = 'visible';
       tempWrapper.style.pointerEvents = 'none';
       tempWrapper.style.opacity = '0.999';
-      tempWrapper.innerHTML = printContent.innerHTML;
+
+      // Append clean inlined clone of the resume preview
+      const cleanClone = createCleanInlineClone(printContent);
+      tempWrapper.appendChild(cleanClone);
 
       document.body.appendChild(tempWrapper);
 
+      // Convert images to base64 data URLs
       const imgs = tempWrapper.querySelectorAll('img');
       const promises = Array.from(imgs).map(async (img) => {
         if (img.src && !img.src.startsWith('data:')) {
@@ -562,8 +608,6 @@ export default function ResumePage() {
         }
       });
       await Promise.all(promises);
-
-      sanitizeContainerColors(tempWrapper);
 
       const opt = {
         margin:       [0, 0, 0, 0],
@@ -578,17 +622,15 @@ export default function ResumePage() {
           scrollX: 0,
           scrollY: 0,
           onclone: (clonedDoc: Document) => {
-            const styleTags = clonedDoc.querySelectorAll('style');
+            // Remove all style and link tags from cloned doc to eliminate Tailwind v4 lab/oklch rules
+            const styleTags = clonedDoc.querySelectorAll('style, link[rel="stylesheet"]');
             styleTags.forEach((tag) => {
-              if (tag.innerHTML) {
-                tag.innerHTML = tag.innerHTML
-                  .replace(/oklch\([^)]+\)/g, '#111827')
-                  .replace(/oklab\([^)]+\)/g, '#111827')
-                  .replace(/lab\([^)]+\)/g, '#111827')
-                  .replace(/lch\([^)]+\)/g, '#111827')
-                  .replace(/color\([^)]+\)/g, '#111827');
-              }
+              if (tag.parentNode) tag.parentNode.removeChild(tag);
             });
+            if (clonedDoc.body) {
+              clonedDoc.body.style.background = '#ffffff';
+              clonedDoc.body.style.color = '#111827';
+            }
           }
         },
         jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
