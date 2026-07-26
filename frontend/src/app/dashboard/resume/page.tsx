@@ -452,28 +452,20 @@ export default function ResumePage() {
   const [loadingPDF, setLoadingPDF] = useState(false);
   const [loadingWord, setLoadingWord] = useState(false);
 
-  const loadHtml2Pdf = async () => {
+  const loadPdfModules = async () => {
     if (typeof window === 'undefined') return null;
-    if ((window as any).html2pdf) return (window as any).html2pdf;
-
     try {
-      const html2pdfModule = await import('html2pdf.js');
-      const h2p = html2pdfModule.default || (html2pdfModule as any);
-      if (h2p) {
-        (window as any).html2pdf = h2p;
-        return h2p;
-      }
+      const [html2canvasModule, jsPdfModule] = await Promise.all([
+        import('html2canvas'),
+        import('jspdf')
+      ]);
+      const html2canvas = html2canvasModule.default || (html2canvasModule as any);
+      const jsPDF = jsPdfModule.jsPDF || (jsPdfModule as any);
+      return { html2canvas, jsPDF };
     } catch (e) {
-      console.warn('Local html2pdf package import fallback:', e);
+      console.error('Failed to import html2canvas/jsPDF modules:', e);
+      return null;
     }
-
-    return new Promise<any>((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
-      script.onload = () => resolve((window as any).html2pdf);
-      script.onerror = () => reject(new Error('Failed to load html2pdf script'));
-      document.head.appendChild(script);
-    });
   };
 
   const printResumeToPDF = async (res: ISavedResume) => {
@@ -482,7 +474,7 @@ export default function ResumePage() {
       await new Promise(r => setTimeout(r, 200));
     }
 
-    // 1. Target the live visible resume preview element directly
+    // 1. Target live visible resume preview element directly
     const printContent = document.getElementById('printable-resume-preview');
     if (!printContent) {
       alert('Could not find live resume preview to export.');
@@ -495,9 +487,10 @@ export default function ResumePage() {
     }
 
     setLoadingPDF(true);
+    const originalStyles: { element: HTMLStyleElement; text: string }[] = [];
 
     try {
-      // 2. Await font rendering
+      // 2. Await font rendering & image inlining
       if (typeof document !== 'undefined' && document.fonts) {
         try {
           await document.fonts.ready;
@@ -506,47 +499,80 @@ export default function ResumePage() {
         }
       }
 
-      const html2pdf = await loadHtml2Pdf();
-      if (!html2pdf) throw new Error('html2pdf library could not be initialized');
+      const imgs = Array.from(printContent.querySelectorAll('img'));
+      await Promise.all(imgs.map(async (img) => {
+        if (img.src && !img.src.startsWith('data:')) {
+          try {
+            const base64 = await getBase64Image(img.src);
+            img.src = base64;
+          } catch (e) {
+            console.warn('Failed to inline image for PDF:', img.src, e);
+          }
+        }
+      }));
+
+      // 3. Pre-execution stylesheet sanitization: Replace lab/oklch/oklab/lch in document style tags BEFORE html2canvas runs
+      const styleTags = Array.from(document.querySelectorAll('style'));
+      styleTags.forEach((styleTag) => {
+        if (styleTag.textContent) {
+          originalStyles.push({ element: styleTag, text: styleTag.textContent });
+          styleTag.textContent = styleTag.textContent
+            .replace(/oklch\([^)]+\)/gi, '#111827')
+            .replace(/oklab\([^)]+\)/gi, '#111827')
+            .replace(/lab\([^)]+\)/gi, '#111827')
+            .replace(/lch\([^)]+\)/gi, '#111827')
+            .replace(/color\([^)]+\)/gi, '#111827');
+        }
+      });
+
+      const modules = await loadPdfModules();
+      if (!modules) throw new Error('PDF generation modules could not be initialized.');
+      const { html2canvas, jsPDF } = modules;
 
       const safeName = (res?.name || 'Resume').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
 
-      // 3. Configure html2pdf options to capture directly from live printContent
-      const opt = {
-        margin:       [0, 0, 0, 0],
-        filename:     `${safeName}_Resume.pdf`,
-        image:        { type: 'jpeg', quality: 0.98 },
-        html2canvas:  { 
-          scale: 2, 
-          useCORS: true, 
-          allowTaint: true,
-          letterRendering: true,
-          backgroundColor: '#ffffff',
-          logging: true,
-          onclone: (clonedDoc: Document) => {
-            // Replace modern unsupported CSS color functions in cloned document style tags
-            const styleTags = clonedDoc.querySelectorAll('style');
-            styleTags.forEach((tag) => {
-              if (tag.textContent) {
-                tag.textContent = tag.textContent
-                  .replace(/oklch\([^)]+\)/gi, '#111827')
-                  .replace(/oklab\([^)]+\)/gi, '#111827')
-                  .replace(/lab\([^)]+\)/gi, '#111827')
-                  .replace(/lch\([^)]+\)/gi, '#111827')
-                  .replace(/color\([^)]+\)/gi, '#111827');
-              }
-            });
-          }
-        },
-        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
-      };
+      // 4. Render canvas directly from live printContent using html2canvas
+      const canvas = await html2canvas(printContent, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff',
+        logging: true
+      });
 
-      // 4. Export PDF directly from live DOM node
-      await html2pdf().from(printContent).set(opt).save();
+      if (!canvas || canvas.width === 0 || canvas.height === 0) {
+        throw new Error('html2canvas generated an empty or zero-dimension canvas.');
+      }
+
+      console.log('Direct html2canvas Render Success:', {
+        width: canvas.width,
+        height: canvas.height
+      });
+
+      const imgData = canvas.toDataURL('image/jpeg', 0.98);
+
+      // 5. Use jsPDF directly to construct A4 PDF document
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      const pdfWidth = 210; // A4 width in mm
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width; // proportional height in mm
+
+      pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+      pdf.save(`${safeName}_Resume.pdf`);
     } catch (err: any) {
       console.error('Error generating PDF:', err);
       alert('Failed to generate PDF. Error details: ' + (err?.message || err));
     } finally {
+      // Restore original document styles
+      originalStyles.forEach(item => {
+        try {
+          item.element.textContent = item.text;
+        } catch (e) {}
+      });
       setLoadingPDF(false);
     }
   };
