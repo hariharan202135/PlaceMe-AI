@@ -409,86 +409,153 @@ export default function ResumePage() {
     }
   };
 
+  const handleAnalyzeCreatedResume = async () => {
+    if (!activeResume.name || !activeResume.role) {
+      alert('⚠️ Please fill out at least your Name and Target Role first before analyzing.');
+      return;
+    }
+    setAnalyzing(true);
+    try {
+      const summaryText = `
+        ${activeResume.name} - ${activeResume.role}
+        Contact: ${activeResume.email} | ${activeResume.phone}
+        Professional Summary: ${activeResume.summary}
+        Technical Skills: ${activeResume.skills?.join(', ')}
+        Work Experience: ${activeResume.experience?.map(e => `${e.role} at ${e.company} (${e.duration}): ${e.description}`).join('; ')}
+        Education: ${activeResume.education?.map(ed => `${ed.degree} from ${ed.institution} (${ed.duration})`).join('; ')}
+        Key Projects: ${activeResume.projects?.map(p => `${p.title} (${p.technologies}): ${p.description}`).join('; ')}
+        Certifications: ${activeResume.certifications?.join(', ')}
+      `.trim();
+
+      const dummyPdfHeader = `%PDF-1.4\n1 0 obj\n<<\n/Title (${activeResume.name} Resume)\n/Subject (ATS Analysis)\n>>\nendobj\nstream\n${summaryText}\nendstream\nendobj\n%%EOF`;
+      const base64Pdf = Buffer.from(dummyPdfHeader, 'utf-8').toString('base64');
+
+      const res = await api.post('/resume/analyze', {
+        file: `data:application/pdf;base64,${base64Pdf}`,
+        fileName: `${activeResume.name}_Builder_Resume.pdf`
+      });
+
+      if (res.data.success) {
+        setActiveAnalysis(res.data.analysis);
+        setActiveTab('analyser');
+        setViewState('result');
+        fetchResumeHistory();
+      }
+    } catch (err: any) {
+      console.error('Error analyzing builder resume:', err);
+      alert('Failed to analyze created resume: ' + (err.response?.data?.message || err.message || err));
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
   const [loadingPDF, setLoadingPDF] = useState(false);
 
-  const loadHtml2Pdf = () => {
+  const loadHtml2Pdf = async () => {
+    if (typeof window === 'undefined') return null;
+    if ((window as any).html2pdf) return (window as any).html2pdf;
+
+    try {
+      const html2pdfModule = await import('html2pdf.js');
+      const h2p = html2pdfModule.default || (html2pdfModule as any);
+      if (h2p) {
+        (window as any).html2pdf = h2p;
+        return h2p;
+      }
+    } catch (e) {
+      console.warn('Local html2pdf package import fallback:', e);
+    }
+
     return new Promise<any>((resolve, reject) => {
-      if (typeof window === 'undefined') {
-        reject(new Error('Window is undefined'));
-        return;
-      }
-      if ((window as any).html2pdf) {
-        resolve((window as any).html2pdf);
-        return;
-      }
-      
-      // Fetch the bundle, patch the color parsing crash, and execute it!
-      fetch('https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js')
-        .then(res => res.text())
-        .then(code => {
-          // Replace the throwing color parser statement with a safe return 0 (transparent color)
-          const patchedCode = code.replace(
-            /throw\s+new\s+Error\(\s*['"]Attempting to parse an unsupported color function\s*['"].*?\)/g,
-            'return 0'
-          );
-          
-          const blob = new Blob([patchedCode], { type: 'application/javascript' });
-          const script = document.createElement('script');
-          script.src = URL.createObjectURL(blob);
-          script.onload = () => {
-            URL.revokeObjectURL(script.src);
-            resolve((window as any).html2pdf);
-          };
-          script.onerror = () => reject(new Error('Failed to load patched html2pdf script'));
-          document.head.appendChild(script);
-        })
-        .catch(err => {
-          console.error('Failed to patch html2pdf, falling back to standard load:', err);
-          const script = document.createElement('script');
-          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
-          script.onload = () => resolve((window as any).html2pdf);
-          script.onerror = () => reject(new Error('Failed to load html2pdf script from CDN'));
-          document.head.appendChild(script);
-        });
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+      script.onload = () => resolve((window as any).html2pdf);
+      script.onerror = () => reject(new Error('Failed to load html2pdf script'));
+      document.head.appendChild(script);
+    });
+  };
+
+  const sanitizeContainerColors = (container: HTMLElement) => {
+    const canvasCtx = document.createElement('canvas').getContext('2d');
+    const allEls = container.querySelectorAll('*');
+
+    allEls.forEach((el: any) => {
+      const computed = window.getComputedStyle(el);
+      const props = ['color', 'backgroundColor', 'borderColor', 'borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor'];
+
+      props.forEach((prop) => {
+        const val = computed[prop as any];
+        if (val && (val.includes('oklch') || val.includes('oklab') || val.includes('lab') || val.includes('lch') || val.includes('var('))) {
+          if (canvasCtx) {
+            try {
+              canvasCtx.fillStyle = val;
+              const hex = canvasCtx.fillStyle;
+              if (hex && hex !== '#000000') {
+                el.style[prop] = hex;
+                return;
+              }
+            } catch (e) {}
+          }
+          if (prop === 'color') el.style.color = '#111827';
+          if (prop === 'backgroundColor') el.style.backgroundColor = '#ffffff';
+        }
+      });
     });
   };
 
   const printResumeToPDF = async (res: ISavedResume) => {
+    if (activeTab !== 'creator') {
+      setActiveTab('creator');
+      await new Promise(r => setTimeout(r, 100));
+    }
+
     const printContent = document.getElementById('printable-resume-preview');
-    if (!printContent) return;
+    if (!printContent) {
+      alert('Could not find resume preview to export.');
+      return;
+    }
 
     setLoadingPDF(true);
 
     try {
       const html2pdf = await loadHtml2Pdf();
-      
+      if (!html2pdf) throw new Error('html2pdf library could not be initialized');
+
       const opt = {
         margin:       [0, 0, 0, 0],
-        filename:     `${res.name || 'Resume'}.pdf`,
+        filename:     `${res.name || 'Resume'}_Resume.pdf`,
         image:        { type: 'jpeg', quality: 0.98 },
         html2canvas:  { 
           scale: 2, 
           useCORS: true, 
+          allowTaint: true,
           letterRendering: true,
-          backgroundColor: '#ffffff'
+          backgroundColor: '#ffffff',
+          scrollX: 0,
+          scrollY: 0
         },
         jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
       };
 
-      // Create a temporary clone container positioned behind the page UI (zIndex) to compile the document
+      // Position fixed at top-left of active viewport to prevent canvas scrollY offset blank pages
       const tempWrapper = document.createElement('div');
-      tempWrapper.style.position = 'absolute';
+      tempWrapper.style.position = 'fixed';
       tempWrapper.style.top = '0';
       tempWrapper.style.left = '0';
-      tempWrapper.style.zIndex = '-9999';
       tempWrapper.style.width = '210mm';
+      tempWrapper.style.minHeight = '297mm';
+      tempWrapper.style.zIndex = '99999';
       tempWrapper.style.background = '#ffffff';
       tempWrapper.style.color = '#000000';
-      tempWrapper.style.padding = '20mm 15mm 20mm 15mm';
+      tempWrapper.style.padding = '15mm 15mm 15mm 15mm';
       tempWrapper.style.boxSizing = 'border-box';
+      tempWrapper.style.overflow = 'visible';
+      tempWrapper.style.pointerEvents = 'none';
+      tempWrapper.style.opacity = '0.999';
       tempWrapper.innerHTML = printContent.innerHTML;
 
       document.body.appendChild(tempWrapper);
+      sanitizeContainerColors(tempWrapper);
 
       // Convert all remote images in tempWrapper to base64 to ensure they render in the PDF
       const imgs = tempWrapper.querySelectorAll('img');
@@ -504,8 +571,7 @@ export default function ResumePage() {
       });
       await Promise.all(promises);
 
-      // Wait a short tick for rendering/layout completion
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await new Promise(resolve => setTimeout(resolve, 150));
 
       await html2pdf().from(tempWrapper).set(opt).save();
       document.body.removeChild(tempWrapper);
@@ -1798,6 +1864,20 @@ ${base64Photo}
               <div className="flex items-center justify-between border-b border-border pb-3">
                 <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest block">Live ATS Resume Preview</span>
                 <div className="flex items-center space-x-2">
+                  <button
+                    disabled={analyzing}
+                    onClick={handleAnalyzeCreatedResume}
+                    className="p-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 border border-emerald-500/30 font-bold rounded-xl text-xs flex items-center space-x-1.5 transition disabled:opacity-60"
+                    title="Calculate ATS Match score for your built resume"
+                  >
+                    {analyzing ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                    )}
+                    <span>{analyzing ? 'Scanning ATS...' : 'Analyze ATS Score'}</span>
+                  </button>
+
                   <button
                     onClick={() => handleRequestDownload('word')}
                     className="p-2 bg-card border border-border hover:bg-card/50 text-foreground font-bold rounded-xl text-xs flex items-center space-x-1.5 transition"

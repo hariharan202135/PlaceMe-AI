@@ -120,17 +120,27 @@ export const getMe = async (req: AuthRequest, res: Response) => {
 };
 
 export const googleLogin = async (req: Request, res: Response) => {
-  const { credential, name, email, avatar } = req.body;
+  let { credential, name, email, avatar } = req.body;
+
+  // Try decoding JWT credential if passed from Google Identity Services
+  if (credential && typeof credential === 'string' && credential.split('.').length === 3) {
+    try {
+      const payloadBase64 = credential.split('.')[1];
+      const decodedStr = Buffer.from(payloadBase64, 'base64').toString('utf-8');
+      const decoded = JSON.parse(decodedStr);
+      if (decoded.email) email = decoded.email;
+      if (decoded.name) name = decoded.name;
+      if (decoded.picture) avatar = decoded.picture;
+    } catch (e) {
+      console.warn('Could not decode Google credential JWT:', e);
+    }
+  }
 
   if (!email || !name) {
-    return res.status(400).json({ success: false, message: 'Missing Google user info' });
+    return res.status(400).json({ success: false, message: 'Missing Google user info (email and name required)' });
   }
 
   try {
-    // In production, we would decode and verify the JWT token from Google:
-    // const ticket = await client.verifyIdToken({ idToken: credential, audience: CLIENT_ID });
-    // const payload = ticket.getPayload();
-    // Here we support frontend client credentials login
     let user = await User.findOne({ email });
 
     if (!user) {
@@ -151,11 +161,14 @@ export const googleLogin = async (req: Request, res: Response) => {
         }
       });
     } else {
-      // Update avatar if provided
-      if (avatar && !user.avatar) {
+      // Update avatar/name if provided
+      if (avatar && (!user.avatar || user.avatar.includes('dicebear'))) {
         user.avatar = avatar;
-        await user.save();
       }
+      if (name && (!user.name || user.name === 'Test Student')) {
+        user.name = name;
+      }
+      await user.save();
     }
 
     sendTokenResponse(user, 200, res);
