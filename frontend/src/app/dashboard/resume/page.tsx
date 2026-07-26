@@ -452,29 +452,12 @@ export default function ResumePage() {
   const [loadingPDF, setLoadingPDF] = useState(false);
   const [loadingWord, setLoadingWord] = useState(false);
 
-  const loadPdfModules = async () => {
-    if (typeof window === 'undefined') return null;
-    try {
-      const [html2canvasModule, jsPdfModule] = await Promise.all([
-        import('html2canvas'),
-        import('jspdf')
-      ]);
-      const html2canvas = html2canvasModule.default || (html2canvasModule as any);
-      const jsPDF = jsPdfModule.jsPDF || (jsPdfModule as any);
-      return { html2canvas, jsPDF };
-    } catch (e) {
-      console.error('Failed to import html2canvas/jsPDF modules:', e);
-      return null;
-    }
-  };
-
   const printResumeToPDF = async (res: ISavedResume) => {
     if (activeTab !== 'creator') {
       setActiveTab('creator');
       await new Promise(r => setTimeout(r, 200));
     }
 
-    // 1. Target live visible resume preview element directly
     const printContent = document.getElementById('printable-resume-preview');
     if (!printContent) {
       alert('Could not find live resume preview to export.');
@@ -482,97 +465,89 @@ export default function ResumePage() {
     }
 
     if (printContent.offsetWidth === 0 || printContent.offsetHeight === 0) {
-      alert('Resume preview container is hidden or collapsed. Please ensure the preview is visible.');
+      alert('Resume preview container is hidden or collapsed. Please ensure the preview tab is visible.');
       return;
     }
 
     setLoadingPDF(true);
-    const originalStyles: { element: HTMLStyleElement; text: string }[] = [];
 
     try {
-      // 2. Await font rendering & image inlining
       if (typeof document !== 'undefined' && document.fonts) {
         try {
           await document.fonts.ready;
-        } catch (e) {
-          console.warn('Font loading wait warning:', e);
-        }
+        } catch (e) {}
       }
 
-      const imgs = Array.from(printContent.querySelectorAll('img'));
-      await Promise.all(imgs.map(async (img) => {
-        if (img.src && !img.src.startsWith('data:')) {
-          try {
-            const base64 = await getBase64Image(img.src);
-            img.src = base64;
-          } catch (e) {
-            console.warn('Failed to inline image for PDF:', img.src, e);
-          }
-        }
-      }));
-
-      // 3. Pre-execution stylesheet sanitization: Replace lab/oklch/oklab/lch in document style tags BEFORE html2canvas runs
-      const styleTags = Array.from(document.querySelectorAll('style'));
-      styleTags.forEach((styleTag) => {
-        if (styleTag.textContent) {
-          originalStyles.push({ element: styleTag, text: styleTag.textContent });
-          styleTag.textContent = styleTag.textContent
-            .replace(/oklch\([^)]+\)/gi, '#111827')
-            .replace(/oklab\([^)]+\)/gi, '#111827')
-            .replace(/lab\([^)]+\)/gi, '#111827')
-            .replace(/lch\([^)]+\)/gi, '#111827')
-            .replace(/color\([^)]+\)/gi, '#111827');
-        }
-      });
-
-      const modules = await loadPdfModules();
-      if (!modules) throw new Error('PDF generation modules could not be initialized.');
-      const { html2canvas, jsPDF } = modules;
+      // Collect all active document stylesheets to preserve Tailwind v4 styling
+      const styleElements = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'));
+      const stylesHtml = styleElements.map(el => el.outerHTML).join('\n');
 
       const safeName = (res?.name || 'Resume').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
 
-      // 4. Render canvas directly from live printContent using html2canvas
-      const canvas = await html2canvas(printContent, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#ffffff',
-        logging: true
+      const fullHtml = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  ${stylesHtml}
+  <style>
+    body {
+      background-color: #ffffff !important;
+      color: #111827 !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    #printable-resume-preview {
+      width: 100% !important;
+      transform: none !important;
+      box-shadow: none !important;
+      border: none !important;
+    }
+  </style>
+</head>
+<body>
+  <div style="width: 100%; max-width: 800px; margin: 0 auto; background: #ffffff;">
+    ${printContent.outerHTML}
+  </div>
+</body>
+</html>`;
+
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/resume/download-pdf`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          html: fullHtml,
+          filename: safeName
+        })
       });
 
-      if (!canvas || canvas.width === 0 || canvas.height === 0) {
-        throw new Error('html2canvas generated an empty or zero-dimension canvas.');
+      if (!response.ok) {
+        let errMessage = 'Failed to generate PDF on server.';
+        try {
+          const errData = await response.json();
+          errMessage = errData.message || errMessage;
+        } catch (e) {}
+        throw new Error(errMessage);
       }
 
-      console.log('Direct html2canvas Render Success:', {
-        width: canvas.width,
-        height: canvas.height
-      });
-
-      const imgData = canvas.toDataURL('image/jpeg', 0.98);
-
-      // 5. Use jsPDF directly to construct A4 PDF document
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4'
-      });
-
-      const pdfWidth = 210; // A4 width in mm
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width; // proportional height in mm
-
-      pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
-      pdf.save(`${safeName}_Resume.pdf`);
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = `${safeName}_Resume.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(downloadUrl);
     } catch (err: any) {
       console.error('Error generating PDF:', err);
       alert('Failed to generate PDF. Error details: ' + (err?.message || err));
     } finally {
-      // Restore original document styles
-      originalStyles.forEach(item => {
-        try {
-          item.element.textContent = item.text;
-        } catch (e) {}
-      });
       setLoadingPDF(false);
     }
   };

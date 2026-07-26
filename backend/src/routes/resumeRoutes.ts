@@ -10,7 +10,8 @@ import {
   checkDownloadPermission,
   confirmDownloadSuccess,
   processDownloadPayment,
-  getResumePhoto
+  getResumePhoto,
+  downloadResumePDF
 } from '../controllers/resumeController';
 import { protect } from '../middlewares/auth';
 
@@ -27,6 +28,7 @@ router.post('/:id/pay', protect, payForResume);
 router.delete('/:id', protect, deleteUserResume);
 router.get('/photo/:id', getResumePhoto);
 
+router.post('/download-pdf', protect, downloadResumePDF);
 router.post('/download-started', protect, checkDownloadPermission);
 router.post('/download-completed', protect, confirmDownloadSuccess);
 router.post('/pay-download', protect, processDownloadPayment);

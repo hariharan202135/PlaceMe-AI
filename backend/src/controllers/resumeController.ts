@@ -394,3 +394,86 @@ export const getResumePhoto = async (req: Request, res: Response) => {
     res.status(500).send('Server Error');
   }
 };
+
+// 11. Generate Production A4 PDF using Puppeteer Chromium Engine
+export const downloadResumePDF = async (req: AuthRequest, res: Response) => {
+  const { html, filename } = req.body;
+
+  if (!html) {
+    return res.status(400).json({ success: false, message: 'Please provide resume HTML content' });
+  }
+
+  let browser;
+  try {
+    const puppeteerModule = await import('puppeteer');
+    const puppeteer = puppeteerModule.default || (puppeteerModule as any);
+
+    browser = await puppeteer.launch({
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process'
+      ]
+    });
+
+    const page = await browser.newPage();
+
+    await page.setViewport({ width: 1200, height: 1600, deviceScaleFactor: 2 });
+
+    await page.setContent(html, {
+      waitUntil: ['load', 'domcontentloaded', 'networkidle0'] as any,
+      timeout: 30000
+    });
+
+    await page.evaluate(async () => {
+      const imgs = Array.from(document.querySelectorAll('img'));
+      await Promise.all(
+        imgs.map((img) => {
+          if (img.complete) return Promise.resolve();
+          return new Promise((resolve) => {
+            img.onload = resolve;
+            img.onerror = resolve;
+          });
+        })
+      );
+    });
+
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
+      printBackground: true,
+      preferCSSPageSize: true,
+      margin: {
+        top: '10mm',
+        bottom: '10mm',
+        left: '10mm',
+        right: '10mm'
+      }
+    });
+
+    await browser.close();
+
+    const safeFilename = (filename || 'Resume').replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}.pdf"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+
+    return res.send(Buffer.from(pdfBuffer));
+  } catch (error: any) {
+    if (browser) {
+      try {
+        await browser.close();
+      } catch (e) {}
+    }
+    console.error('Puppeteer PDF Generation Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: `Failed to generate PDF: ${error.message || error}`
+    });
+  }
+};
