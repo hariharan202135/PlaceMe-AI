@@ -513,29 +513,14 @@ export default function ResumePage() {
 </body>
 </html>`;
 
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/resume/download-pdf`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({
-          html: fullHtml,
-          filename: safeName
-        })
+      const response = await api.post('/resume/download-pdf', {
+        html: fullHtml,
+        filename: safeName
+      }, {
+        responseType: 'blob'
       });
 
-      if (!response.ok) {
-        let errMessage = 'Failed to generate PDF on server.';
-        try {
-          const errData = await response.json();
-          errMessage = errData.message || errMessage;
-        } catch (e) {}
-        throw new Error(errMessage);
-      }
-
-      const blob = await response.blob();
+      const blob = new Blob([response.data], { type: 'application/pdf' });
       const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = downloadUrl;
