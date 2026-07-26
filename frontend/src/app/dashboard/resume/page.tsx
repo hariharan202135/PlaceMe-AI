@@ -474,6 +474,8 @@ export default function ResumePage() {
       script.onerror = () => reject(new Error('Failed to load html2pdf script'));
       document.head.appendChild(script);
     });
+  };
+
   const sanitizeContainerColors = (container: HTMLElement) => {
     if (!container) return;
     const canvasCtx = typeof document !== 'undefined' ? document.createElement('canvas').getContext('2d') : null;
