@@ -450,6 +450,7 @@ export default function ResumePage() {
   };
 
   const [loadingPDF, setLoadingPDF] = useState(false);
+  const [loadingWord, setLoadingWord] = useState(false);
 
   const loadHtml2Pdf = async () => {
     if (typeof window === 'undefined') return null;
@@ -475,38 +476,10 @@ export default function ResumePage() {
     });
   };
 
-  const sanitizeContainerColors = (container: HTMLElement) => {
-    const canvasCtx = document.createElement('canvas').getContext('2d');
-    const allEls = container.querySelectorAll('*');
-
-    allEls.forEach((el: any) => {
-      const computed = window.getComputedStyle(el);
-      const props = ['color', 'backgroundColor', 'borderColor', 'borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor'];
-
-      props.forEach((prop) => {
-        const val = computed[prop as any];
-        if (val && (val.includes('oklch') || val.includes('oklab') || val.includes('lab') || val.includes('lch') || val.includes('var('))) {
-          if (canvasCtx) {
-            try {
-              canvasCtx.fillStyle = val;
-              const hex = canvasCtx.fillStyle;
-              if (hex && hex !== '#000000') {
-                el.style[prop] = hex;
-                return;
-              }
-            } catch (e) {}
-          }
-          if (prop === 'color') el.style.color = '#111827';
-          if (prop === 'backgroundColor') el.style.backgroundColor = '#ffffff';
-        }
-      });
-    });
-  };
-
   const printResumeToPDF = async (res: ISavedResume) => {
     if (activeTab !== 'creator') {
       setActiveTab('creator');
-      await new Promise(r => setTimeout(r, 100));
+      await new Promise(r => setTimeout(r, 150));
     }
 
     const printContent = document.getElementById('printable-resume-preview');
@@ -516,29 +489,16 @@ export default function ResumePage() {
     }
 
     setLoadingPDF(true);
+    let tempWrapper: HTMLDivElement | null = null;
 
     try {
       const html2pdf = await loadHtml2Pdf();
       if (!html2pdf) throw new Error('html2pdf library could not be initialized');
 
-      const opt = {
-        margin:       [0, 0, 0, 0],
-        filename:     `${res.name || 'Resume'}_Resume.pdf`,
-        image:        { type: 'jpeg', quality: 0.98 },
-        html2canvas:  { 
-          scale: 2, 
-          useCORS: true, 
-          allowTaint: true,
-          letterRendering: true,
-          backgroundColor: '#ffffff',
-          scrollX: 0,
-          scrollY: 0
-        },
-        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
-      };
+      const safeName = (res?.name || 'Resume').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
 
-      // Position fixed at top-left of active viewport to prevent canvas scrollY offset blank pages
-      const tempWrapper = document.createElement('div');
+      tempWrapper = document.createElement('div');
+      tempWrapper.id = 'pdf-printable-container';
       tempWrapper.style.position = 'fixed';
       tempWrapper.style.top = '0';
       tempWrapper.style.left = '0';
@@ -555,9 +515,7 @@ export default function ResumePage() {
       tempWrapper.innerHTML = printContent.innerHTML;
 
       document.body.appendChild(tempWrapper);
-      sanitizeContainerColors(tempWrapper);
 
-      // Convert all remote images in tempWrapper to base64 to ensure they render in the PDF
       const imgs = tempWrapper.querySelectorAll('img');
       const promises = Array.from(imgs).map(async (img) => {
         if (img.src && !img.src.startsWith('data:')) {
@@ -571,14 +529,47 @@ export default function ResumePage() {
       });
       await Promise.all(promises);
 
+      sanitizeContainerColors(tempWrapper);
+
+      const opt = {
+        margin:       [0, 0, 0, 0],
+        filename:     `${safeName}_Resume.pdf`,
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { 
+          scale: 2, 
+          useCORS: true, 
+          allowTaint: true,
+          letterRendering: true,
+          backgroundColor: '#ffffff',
+          scrollX: 0,
+          scrollY: 0,
+          onclone: (clonedDoc: Document) => {
+            const styleTags = clonedDoc.querySelectorAll('style');
+            styleTags.forEach((tag) => {
+              if (tag.innerHTML) {
+                tag.innerHTML = tag.innerHTML
+                  .replace(/oklch\([^)]+\)/g, '#111827')
+                  .replace(/oklab\([^)]+\)/g, '#111827')
+                  .replace(/lab\([^)]+\)/g, '#111827')
+                  .replace(/lch\([^)]+\)/g, '#111827')
+                  .replace(/color\([^)]+\)/g, '#111827');
+              }
+            });
+          }
+        },
+        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      };
+
       await new Promise(resolve => setTimeout(resolve, 150));
 
       await html2pdf().from(tempWrapper).set(opt).save();
-      document.body.removeChild(tempWrapper);
     } catch (err: any) {
       console.error('Error generating PDF:', err);
       alert('Failed to generate PDF. Error details: ' + (err?.message || err));
     } finally {
+      if (tempWrapper && tempWrapper.parentNode) {
+        tempWrapper.parentNode.removeChild(tempWrapper);
+      }
       setLoadingPDF(false);
     }
   };
@@ -636,7 +627,8 @@ export default function ResumePage() {
         projects: [],
         education: [],
         achievements: [],
-        certifications: []
+        certifications: [],
+        _id: ''
       };
     }
     return {
@@ -660,6 +652,7 @@ export default function ResumePage() {
   };
 
   const performDownloadWord = async (res: ISavedResume) => {
+    setLoadingWord(true);
     try {
       let base64Photo = '';
       let mimeType = 'image/png';
@@ -689,244 +682,143 @@ export default function ResumePage() {
         }
       }
 
-    // Generate clean Word-compatible HTML layout
-    const skillsRows = (res.skills || []).map(s => {
-      const parts = s.split(':');
-      if (parts.length > 1) {
-        const category = parts[0].trim();
-        const items = parts[1].split(',').map(item => item.trim());
-        const tags = items.map(item => `<span style="background-color:#f3f4f6; border:1px solid #d1d5db; padding:2px 6px; margin-right:4px; font-size:8.5pt; font-family:Arial; border-radius:3px; display:inline-block;">${item}</span>`).join(' ');
+      const safeName = (res?.name || 'Resume').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+
+      const skillsRows = (res.skills || []).map(s => {
+        if (typeof s === 'string' && s.includes(':')) {
+          const [category, tags] = s.split(/:\s*/);
+          return `
+            <tr>
+              <td valign="top" style="width: 25%; font-weight: bold; font-size: 9pt; font-family: Arial, sans-serif; padding: 3px 0; text-transform: uppercase; color: #111;">
+                ${category}:
+              </td>
+              <td valign="top" style="width: 75%; padding: 3px 0; font-size: 9pt; font-family: Arial, sans-serif; color: #333;">
+                ${tags}
+              </td>
+            </tr>
+          `;
+        }
         return `
           <tr>
-            <td valign="top" style="width: 30%; font-weight: bold; font-size: 9pt; font-family: Arial; padding: 4px 0; text-transform: uppercase; color: #111;">
-              ${category}
-            </td>
-            <td valign="top" style="width: 70%; padding: 4px 0;">
-              ${tags}
+            <td colspan="2" style="font-size: 9pt; font-family: Arial, sans-serif; padding: 2px 0; color: #333;">
+              &bull; ${s}
             </td>
           </tr>
         `;
-      }
-      return `
-        <tr>
-          <td colspan="2" style="font-size: 9pt; font-family: Arial; padding: 4px 0;">
-            <span style="background-color:#f3f4f6; border:1px solid #d1d5db; padding:2px 6px; margin-right:4px; border-radius:3px; display:inline-block;">${s}</span>
-          </td>
-        </tr>
-      `;
-    }).join('');
+      }).join('');
 
-    const experienceBlocks = (res.experience || []).map(exp => `
-      <div style="margin-bottom: 10px; font-family: Arial;">
-        <table border="0" cellpadding="0" cellspacing="0" style="width: 100%;">
-          <tr>
-            <td align="left" style="font-weight: bold; font-size: 9.5pt; color: #111;">${exp.company}</td>
-            <td align="right" style="font-size: 8.5pt; color: #666; font-family: monospace;">${exp.duration}</td>
-          </tr>
-          <tr>
-            <td align="left" style="font-size: 8.5pt; color: #2563eb; font-weight: bold; font-style: italic;">${exp.role}</td>
-            <td align="right" style="font-size: 8.5pt; color: #666;"></td>
-          </tr>
-        </table>
-        <div style="font-size: 9pt; color: #333; margin-top: 3px; white-space: pre-line; line-height: 1.3;">
-          ${exp.description}
-        </div>
-      </div>
-    `).join('');
-
-    const projectBlocks = (res.projects || []).map(proj => `
-      <div style="margin-bottom: 10px; font-family: Arial;">
-        <table border="0" cellpadding="0" cellspacing="0" style="width: 100%;">
-          <tr>
-            <td align="left" style="font-weight: bold; font-size: 9.5pt; color: #111;">${proj.title}</td>
-            <td align="right" style="font-size: 8.5pt; color: #2563eb; font-family: monospace;">${proj.link || ''}</td>
-          </tr>
-        </table>
-        <div style="font-size: 8.5pt; color: #555; font-weight: bold; margin-top: 1px;">
-          Tech Stack: ${proj.technologies}
-        </div>
-        <div style="font-size: 9pt; color: #333; margin-top: 3px; white-space: pre-line; line-height: 1.3;">
-          ${proj.description}
-        </div>
-      </div>
-    `).join('');
-
-    const educationBlocks = (res.education || []).map(edu => `
-      <div style="margin-bottom: 8px; font-family: Arial;">
-        <table border="0" cellpadding="0" cellspacing="0" style="width: 100%;">
-          <tr>
-            <td align="left" style="font-weight: bold; font-size: 9.5pt; color: #111;">${edu.institution}</td>
-            <td align="right" style="font-size: 8.5pt; color: #666; font-family: monospace;">${edu.duration}</td>
-          </tr>
-          <tr>
-            <td align="left" style="font-size: 8.5pt; color: #555;">${edu.degree}</td>
-            <td align="right" style="font-size: 8.5pt; color: #444; font-weight: bold;">${edu.grade ? `Grade: ${edu.grade}` : ''}</td>
-          </tr>
-        </table>
-      </div>
-    `).join('');
-
-    const achCount = (res.achievements || []).length;
-    const colWidth = achCount === 1 ? '100%' : achCount === 2 ? '50%' : '33%';
-
-    const achievementsList = (res.achievements || []).map(ach => {
-      const parts = ach.split(/\s*[-—–]\s*/);
-      const title = parts[0].trim();
-      const desc = parts.slice(1).join(' — ').trim();
-      return `
-        <td valign="top" style="width: ${colWidth}; padding: 8px; border: 1px solid #e5e7eb; background-color: #fafafa; border-radius: 6px; text-align: center;">
-          <span style="font-size: 14pt;">⭐</span>
-          <div style="font-weight: bold; font-size: 8.5pt; color: #111; margin-top: 2px; text-transform: uppercase;">${title}</div>
-          ${desc ? `<div style="font-size: 7.5pt; color: #555; margin-top: 2px;">${desc}</div>` : ''}
-        </td>
-      `;
-    }).join('');
-
-    const certificationsList = (res.certifications || []).map(c => `
-      <div style="font-size: 9pt; font-family: Arial; text-align: center; color: #333; margin-top: 4px;">
-        🏆 ${c}
-      </div>
-    `).join('');
-
-    const sourceHTML = `
-      <html xmlns:o="urn:schemas-microsoft-com:office:office"
-            xmlns:w="urn:schemas-microsoft-com:office:word"
-            xmlns="http://www.w3.org/TR/REC-html40">
-      <head>
-        <meta charset="utf-8">
-        <title>${res.name || 'Resume'}</title>
-        <!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>90</w:Zoom></w:WordDocument></xml><![endif]-->
-        <style>
-          body {
-            font-family: Arial, sans-serif;
-            color: #111111;
-            background-color: #ffffff;
-            margin: 0;
-            padding: 20px;
-            line-height: 1.4;
-          }
-          h3 {
-            font-size: 10pt;
-            font-weight: bold;
-            text-transform: uppercase;
-            border-bottom: 1px solid #000000;
-            padding-bottom: 2px;
-            margin-top: 15px;
-            margin-bottom: 8px;
-            text-align: center;
-          }
-        </style>
-      </head>
-      <body>
-        
-        <!-- Header -->
-        <table border="0" cellpadding="0" cellspacing="0" style="width: 100%; border-bottom: 2px solid #000000; padding-bottom: 10px; margin-bottom: 15px;">
-          <tr>
-            ${base64Photo ? `
-            <td valign="top" style="width: 90px; padding-right: 15px;">
-              <img src="cid:resume-photo" width="70" height="70" style="border-radius: 35px; border: 1px solid #dddddd;" />
-            </td>
-            ` : ''}
-            <td valign="top" align="left">
-              <h2 style="font-size: 22pt; font-weight: 900; margin: 0; text-transform: uppercase; letter-spacing: -0.5px; color: #111111;">
-                ${res.name || 'YOUR FULL NAME'}
-              </h2>
-              <div style="font-size: 9.5pt; font-weight: bold; color: #444444; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px;">
-                ${res.role || 'TARGET PROFESSIONAL ROLE'}
-              </div>
-              <div style="font-size: 8.5pt; color: #555555; margin-top: 6px; font-family: Arial, sans-serif; line-height: 1.2;">
-                ${res.phone ? `📞 ${res.phone}` : ''}
-                ${res.email ? ` &nbsp;&bull;&nbsp; 📧 ${res.email}` : ''}
-                ${res.linkedin ? ` &nbsp;&bull;&nbsp; 🔗 ${res.linkedin}` : ''}
-                ${res.github ? ` &nbsp;&bull;&nbsp; 💻 ${res.github}` : ''}
-              </div>
-            </td>
-          </tr>
-        </table>
-
-        <!-- Summary -->
-        ${res.summary ? `
-        <div>
-          <h3>Summary</h3>
-          <p style="font-size: 9pt; color: #333333; text-align: center; margin: 0; line-height: 1.4;">
-            ${res.summary}
-          </p>
-        </div>
-        ` : ''}
-
-        <!-- Skills -->
-        ${res.skills.length > 0 ? `
-        <div>
-          <h3>Skills</h3>
-          <table border="0" cellpadding="0" cellspacing="0" style="width: 100%;">
-            ${skillsRows}
-          </table>
-        </div>
-        ` : ''}
-
-        <!-- Experience -->
-        ${res.experience.length > 0 ? `
-        <div>
-          <h3>Work Experience</h3>
-          ${experienceBlocks}
-        </div>
-        ` : ''}
-
-        <!-- Projects -->
-        ${res.projects.length > 0 ? `
-        <div>
-          <h3>Projects</h3>
-          ${projectBlocks}
-        </div>
-        ` : ''}
-
-        <!-- Education -->
-        ${res.education.length > 0 ? `
-        <div>
-          <h3>Education</h3>
-          ${educationBlocks}
-        </div>
-        ` : ''}
-
-        <!-- Achievements & Certifications Block (Side-by-side or stacked) -->
-        ${(res.achievements.length > 0 || res.certifications.length > 0) ? `
-        <div style="margin-top: 15px; font-family: Arial;">
+      const experienceBlocks = (res.experience || []).map(exp => `
+        <div style="margin-bottom: 12px; font-family: Arial, sans-serif;">
           <table border="0" cellpadding="0" cellspacing="0" style="width: 100%;">
             <tr>
-              ${res.achievements.length > 0 ? `
-              <td valign="top" style="width: ${res.certifications.length > 0 ? '60%' : '100%'}; padding-right: 15px;">
-                <h3 style="text-align: left;">Achievements</h3>
-                <table border="0" cellpadding="0" cellspacing="0" style="width: 100%;">
-                  <tr>
-                    ${achievementsList}
-                  </tr>
-                </table>
-              </td>
-              ` : ''}
-              
-              ${res.certifications.length > 0 ? `
-              <td valign="top" style="width: ${res.achievements.length > 0 ? '40%' : '100%'};">
-                <h3 style="text-align: left;">Certifications</h3>
-                <div style="border: 1px solid #e5e7eb; padding: 10px; border-radius: 6px; background-color: #fafafa;">
-                  ${certificationsList}
-                </div>
-              </td>
-              ` : ''}
+              <td align="left" style="font-weight: bold; font-size: 10pt; color: #111;">${exp.company}</td>
+              <td align="right" style="font-size: 9pt; color: #666;">${exp.duration}</td>
+            </tr>
+            <tr>
+              <td align="left" style="font-size: 9pt; color: #2563eb; font-weight: bold; font-style: italic;">${exp.role}</td>
+              <td align="right"></td>
+            </tr>
+          </table>
+          <div style="font-size: 9pt; color: #333; margin-top: 4px; line-height: 1.4;">
+            ${exp.description}
+          </div>
+        </div>
+      `).join('');
+
+      const projectBlocks = (res.projects || []).map(proj => `
+        <div style="margin-bottom: 12px; font-family: Arial, sans-serif;">
+          <table border="0" cellpadding="0" cellspacing="0" style="width: 100%;">
+            <tr>
+              <td align="left" style="font-weight: bold; font-size: 10pt; color: #111;">${proj.title}</td>
+              <td align="right" style="font-size: 8.5pt; color: #2563eb;">${proj.link || ''}</td>
+            </tr>
+          </table>
+          <div style="font-size: 8.5pt; color: #4b5563; font-weight: bold; margin-top: 2px;">
+            Tech Stack: ${proj.technologies}
+          </div>
+          <div style="font-size: 9pt; color: #333; margin-top: 4px; line-height: 1.4;">
+            ${proj.description}
+          </div>
+        </div>
+      `).join('');
+
+      const educationBlocks = (res.education || []).map(edu => `
+        <div style="margin-bottom: 8px; font-family: Arial, sans-serif;">
+          <table border="0" cellpadding="0" cellspacing="0" style="width: 100%;">
+            <tr>
+              <td align="left" style="font-weight: bold; font-size: 9.5pt; color: #111;">${edu.institution}</td>
+              <td align="right" style="font-size: 8.5pt; color: #666;">${edu.duration}</td>
+            </tr>
+            <tr>
+              <td align="left" style="font-size: 8.5pt; color: #555;">${edu.degree}</td>
+              <td align="right" style="font-size: 8.5pt; color: #111; font-weight: bold;">${edu.grade ? `Grade: ${edu.grade}` : ''}</td>
             </tr>
           </table>
         </div>
-        ` : ''}
+      `).join('');
 
-      </body>
-      </html>
-    `;
+      const achievementsList = (res.achievements || []).map(ach => `
+        <li style="font-size: 9pt; font-family: Arial, sans-serif; color: #333; margin-bottom: 4px;">${ach}</li>
+      `).join('');
 
-    let fileContent = '';
-    let blobType = 'application/msword;charset=utf-8';
-    
-    if (base64Photo) {
-      blobType = 'message/rfc822';
-      fileContent = `MIME-Version: 1.0
+      const certificationsList = (res.certifications || []).map(c => `
+        <li style="font-size: 9pt; font-family: Arial, sans-serif; color: #333; margin-bottom: 4px;">${c}</li>
+      `).join('');
+
+      const sourceHTML = `
+        <html xmlns:o="urn:schemas-microsoft-com:office:office"
+              xmlns:w="urn:schemas-microsoft-com:office:word"
+              xmlns="http://www.w3.org/TR/REC-html40">
+        <head>
+          <meta charset="utf-8">
+          <title>${res.name || 'Resume'}</title>
+          <!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]-->
+          <style>
+            body { font-family: Arial, sans-serif; color: #111111; background-color: #ffffff; margin: 0; padding: 25px; line-height: 1.4; }
+            h2 { font-size: 20pt; margin: 0; text-transform: uppercase; color: #111111; }
+            h3 { font-size: 10pt; font-weight: bold; text-transform: uppercase; border-bottom: 1.5px solid #111111; padding-bottom: 3px; margin-top: 16px; margin-bottom: 8px; }
+          </style>
+        </head>
+        <body>
+          <table border="0" cellpadding="0" cellspacing="0" style="width: 100%; border-bottom: 2px solid #111111; padding-bottom: 12px; margin-bottom: 15px;">
+            <tr>
+              ${base64Photo ? `
+              <td valign="top" style="width: 80px; padding-right: 15px;">
+                <img src="cid:resume-photo" width="70" height="70" style="border-radius: 35px; border: 1px solid #dddddd;" />
+              </td>
+              ` : ''}
+              <td valign="top" align="left">
+                <h2>${res.name || 'YOUR FULL NAME'}</h2>
+                <div style="font-size: 10pt; font-weight: bold; color: #374151; text-transform: uppercase; margin-top: 3px;">
+                  ${res.role || 'TARGET PROFESSIONAL ROLE'}
+                </div>
+                <div style="font-size: 8.5pt; color: #4b5563; margin-top: 6px; line-height: 1.3;">
+                  ${res.phone ? `Phone: ${res.phone}` : ''}
+                  ${res.email ? ` &bull; Email: ${res.email}` : ''}
+                  ${res.linkedin ? ` &bull; LinkedIn: ${res.linkedin}` : ''}
+                  ${res.github ? ` &bull; GitHub: ${res.github}` : ''}
+                </div>
+              </td>
+            </tr>
+          </table>
+
+          ${res.summary ? `<div><h3>Professional Summary</h3><p style="font-size: 9pt; color: #333; margin: 0; line-height: 1.4;">${res.summary}</p></div>` : ''}
+          ${res.skills.length > 0 ? `<div><h3>Technical Skills</h3><table border="0" cellpadding="0" cellspacing="0" style="width: 100%;">${skillsRows}</table></div>` : ''}
+          ${res.experience.length > 0 ? `<div><h3>Work Experience</h3>${experienceBlocks}</div>` : ''}
+          ${res.projects.length > 0 ? `<div><h3>Key Projects</h3>${projectBlocks}</div>` : ''}
+          ${res.education.length > 0 ? `<div><h3>Education</h3>${educationBlocks}</div>` : ''}
+          ${res.achievements.length > 0 ? `<div><h3>Achievements</h3><ul>${achievementsList}</ul></div>` : ''}
+          ${res.certifications.length > 0 ? `<div><h3>Certifications</h3><ul>${certificationsList}</ul></div>` : ''}
+        </body>
+        </html>
+      `;
+
+      let fileContent = '';
+      let blobType = 'application/msword;charset=utf-8';
+      
+      if (base64Photo) {
+        blobType = 'message/rfc822';
+        fileContent = `MIME-Version: 1.0
 Content-Type: multipart/related; boundary="next-part"; type="text/html"
 
 --next-part
@@ -943,32 +835,37 @@ Content-ID: <resume-photo>
 ${base64Photo}
 
 --next-part--`;
-    } else {
-      fileContent = '\ufeff' + sourceHTML;
-    }
+      } else {
+        fileContent = '\ufeff' + sourceHTML;
+      }
 
-    const blob = new Blob([fileContent], { type: blobType });
-    const blobUrl = URL.createObjectURL(blob);
-    
-    if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-      window.location.href = blobUrl;
-      setTimeout(() => {
-        URL.revokeObjectURL(blobUrl);
-      }, 5000);
-    } else {
-      const fileDownload = document.createElement("a");
-      document.body.appendChild(fileDownload);
-      fileDownload.href = blobUrl;
-      fileDownload.download = `${res.name.replace(/\s+/g, '_')}_Resume.doc`;
-      fileDownload.click();
-      setTimeout(() => {
-        document.body.removeChild(fileDownload);
-        URL.revokeObjectURL(blobUrl);
-      }, 100);
-    }
+      const blob = new Blob([fileContent], { type: blobType });
+      const blobUrl = URL.createObjectURL(blob);
+      
+      if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+        window.location.href = blobUrl;
+        setTimeout(() => {
+          URL.revokeObjectURL(blobUrl);
+        }, 5000);
+      } else {
+        const fileDownload = document.createElement("a");
+        fileDownload.style.display = "none";
+        document.body.appendChild(fileDownload);
+        fileDownload.href = blobUrl;
+        fileDownload.download = `${safeName}_Resume.doc`;
+        fileDownload.click();
+        setTimeout(() => {
+          if (fileDownload.parentNode) {
+            fileDownload.parentNode.removeChild(fileDownload);
+          }
+          URL.revokeObjectURL(blobUrl);
+        }, 1000);
+      }
     } catch (err: any) {
       console.error('Error generating Word document:', err);
       alert('Failed to generate Word document. Error details: ' + (err?.message || err));
+    } finally {
+      setLoadingWord(false);
     }
   };
 
@@ -1879,12 +1776,17 @@ ${base64Photo}
                   </button>
 
                   <button
+                    disabled={loadingWord || loadingPDF}
                     onClick={() => handleRequestDownload('word')}
-                    className="p-2 bg-card border border-border hover:bg-card/50 text-foreground font-bold rounded-xl text-xs flex items-center space-x-1.5 transition"
+                    className="p-2 bg-card border border-border hover:bg-card/50 text-foreground font-bold rounded-xl text-xs flex items-center space-x-1.5 transition disabled:opacity-60"
                     title="Download editable MS Word document"
                   >
-                    <FileText className="w-3.5 h-3.5" />
-                    <span>Download Word (.doc)</span>
+                    {loadingWord ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <FileText className="w-3.5 h-3.5" />
+                    )}
+                    <span>{loadingWord ? 'Downloading Word...' : 'Download Word (.doc)'}</span>
                   </button>
 
                   <button
