@@ -476,90 +476,66 @@ export default function ResumePage() {
     });
   };
 
-  const toHexOrRgb = (colorStr: string, defaultFallback: string = '#111827'): string => {
-    if (!colorStr || colorStr === 'transparent' || colorStr === 'inherit' || colorStr === 'initial' || colorStr === 'none') {
-      return defaultFallback;
-    }
-    if (/^#(?:[0-9a-fA-F]{3}){1,2}$/.test(colorStr) || /^rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)$/.test(colorStr)) {
-      return colorStr;
-    }
-    if (typeof document !== 'undefined') {
+  const sanitizeContainerColors = (container: HTMLElement) => {
+    if (!container) return;
+    const canvasCtx = typeof document !== 'undefined' ? document.createElement('canvas').getContext('2d') : null;
+    const allEls = container.querySelectorAll('*');
+
+    allEls.forEach((el: any) => {
+      if (!el || !el.style) return;
       try {
-        const canvasCtx = document.createElement('canvas').getContext('2d');
-        if (canvasCtx) {
-          canvasCtx.fillStyle = colorStr;
-          const hex = canvasCtx.fillStyle;
-          if (hex && hex !== '#000000' && /^#[0-9a-fA-F]{6}$/.test(hex)) {
-            return hex;
-          }
-        }
-      } catch (e) {}
-    }
-    return defaultFallback;
-  };
+        const computed = window.getComputedStyle(el);
+        const colorProps = ['color', 'backgroundColor', 'borderColor', 'borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor'];
 
-  const createCleanInlineClone = (sourceEl: HTMLElement): HTMLElement => {
-    const clone = sourceEl.cloneNode(true) as HTMLElement;
-    const sourceNodes = [sourceEl, ...Array.from(sourceEl.querySelectorAll('*'))];
-    const cloneNodes = [clone, ...Array.from(clone.querySelectorAll('*'))];
-
-    const colorProps = ['color', 'backgroundColor', 'borderColor', 'borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor'];
-
-    sourceNodes.forEach((srcNode, index) => {
-      const targetNode = cloneNodes[index] as HTMLElement;
-      if (!targetNode || !srcNode) return;
-
-      if (srcNode.nodeType === Node.ELEMENT_NODE) {
-        try {
-          const computed = window.getComputedStyle(srcNode as HTMLElement);
-
-          targetNode.style.fontFamily = 'Arial, Helvetica, sans-serif';
-          if (computed.fontSize) targetNode.style.fontSize = computed.fontSize;
-          if (computed.fontWeight) targetNode.style.fontWeight = computed.fontWeight;
-          if (computed.lineHeight) targetNode.style.lineHeight = computed.lineHeight;
-          if (computed.letterSpacing) targetNode.style.letterSpacing = computed.letterSpacing;
-          if (computed.textAlign) targetNode.style.textAlign = computed.textAlign;
-          if (computed.textTransform) targetNode.style.textTransform = computed.textTransform;
-          if (computed.whiteSpace) targetNode.style.whiteSpace = computed.whiteSpace;
-          targetNode.style.boxSizing = 'border-box';
-          if (computed.display) targetNode.style.display = computed.display === 'inline' ? 'inline-block' : computed.display;
-          if (computed.flexDirection) targetNode.style.flexDirection = computed.flexDirection;
-          if (computed.justifyContent) targetNode.style.justifyContent = computed.justifyContent;
-          if (computed.alignItems) targetNode.style.alignItems = computed.alignItems;
-          if (computed.gap) targetNode.style.gap = computed.gap;
-
-          if (computed.padding) targetNode.style.padding = computed.padding;
-          if (computed.margin) targetNode.style.margin = computed.margin;
-          if (computed.borderRadius) targetNode.style.borderRadius = computed.borderRadius;
-
-          colorProps.forEach((prop) => {
-            const val = computed[prop as any];
-            if (val && val !== 'rgba(0, 0, 0, 0)' && val !== 'transparent') {
-              const fallback = prop === 'color' ? '#111827' : prop === 'backgroundColor' ? '#ffffff' : '#e5e7eb';
-              targetNode.style[prop as any] = toHexOrRgb(val, fallback);
+        colorProps.forEach((prop) => {
+          const val = computed[prop as any];
+          if (val && (val.includes('oklch') || val.includes('oklab') || val.includes('lab') || val.includes('lch') || val.includes('var(') || val.includes('color('))) {
+            if (canvasCtx) {
+              try {
+                canvasCtx.fillStyle = val;
+                const hex = canvasCtx.fillStyle;
+                if (hex && hex !== '#000000' && hex !== 'rgba(0, 0, 0, 0)' && /^#[0-9a-fA-F]{6}$/.test(hex)) {
+                  el.style[prop] = hex;
+                  return;
+                }
+              } catch (e) {}
             }
-          });
-
-          // Strip class attributes to neutralize Tailwind class matching
-          targetNode.removeAttribute('class');
-        } catch (e) {
-          console.warn('Error inlining computed node style:', e);
-        }
-      }
+            if (prop === 'color') el.style.color = '#111827';
+            if (prop === 'backgroundColor') el.style.backgroundColor = '#ffffff';
+            if (prop.includes('Color')) el.style[prop] = '#e5e7eb';
+          }
+        });
+      } catch (e) {}
     });
-
-    return clone;
   };
 
   const printResumeToPDF = async (res: ISavedResume) => {
     if (activeTab !== 'creator') {
       setActiveTab('creator');
-      await new Promise(r => setTimeout(r, 150));
+      await new Promise(r => setTimeout(r, 200));
     }
 
-    const printContent = document.getElementById('printable-resume-preview');
+    // 1. Target element selection with fallback
+    let printContent = document.getElementById('printable-resume-preview');
+    if (!printContent || printContent.offsetHeight === 0 || printContent.children.length === 0) {
+      printContent = document.querySelector('[data-resume-preview]') || document.querySelector('.resume-preview-container') as HTMLElement;
+    }
+
     if (!printContent) {
       alert('Could not find resume preview to export.');
+      return;
+    }
+
+    console.log('PDF Export Target Element:', {
+      id: printContent.id,
+      offsetWidth: printContent.offsetWidth,
+      offsetHeight: printContent.offsetHeight,
+      childCount: printContent.children.length,
+      innerHTMLLength: printContent.innerHTML.length
+    });
+
+    if (printContent.offsetWidth === 0 || printContent.offsetHeight === 0) {
+      alert('Resume preview container is currently hidden or collapsed. Please ensure the preview tab is visible.');
       return;
     }
 
@@ -567,12 +543,21 @@ export default function ResumePage() {
     let tempWrapper: HTMLDivElement | null = null;
 
     try {
+      // 2. Wait for document fonts and layout to settle
+      if (typeof document !== 'undefined' && document.fonts) {
+        try {
+          await document.fonts.ready;
+        } catch (e) {
+          console.warn('Font loading wait warning:', e);
+        }
+      }
+
       const html2pdf = await loadHtml2Pdf();
       if (!html2pdf) throw new Error('html2pdf library could not be initialized');
 
       const safeName = (res?.name || 'Resume').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
 
-      // Create isolated top-level container locked to viewport
+      // 3. Create fixed top-level container attached to active viewport
       tempWrapper = document.createElement('div');
       tempWrapper.id = 'pdf-printable-container';
       tempWrapper.style.position = 'fixed';
@@ -582,22 +567,25 @@ export default function ResumePage() {
       tempWrapper.style.minHeight = '297mm';
       tempWrapper.style.zIndex = '99999';
       tempWrapper.style.background = '#ffffff';
-      tempWrapper.style.color = '#000000';
+      tempWrapper.style.color = '#111827';
       tempWrapper.style.padding = '15mm';
       tempWrapper.style.boxSizing = 'border-box';
       tempWrapper.style.overflow = 'visible';
       tempWrapper.style.pointerEvents = 'none';
       tempWrapper.style.opacity = '0.999';
 
-      // Append clean inlined clone of the resume preview
-      const cleanClone = createCleanInlineClone(printContent);
-      tempWrapper.appendChild(cleanClone);
+      // Clone original preview DOM node directly, retaining all Tailwind layout & typography classes
+      const clonedPreview = printContent.cloneNode(true) as HTMLElement;
+      clonedPreview.style.transform = 'none'; // reset scale transform if scaled for mobile viewports
+      clonedPreview.style.width = '100%';
+      clonedPreview.style.height = 'auto';
 
+      tempWrapper.appendChild(clonedPreview);
       document.body.appendChild(tempWrapper);
 
-      // Convert images to base64 data URLs
-      const imgs = tempWrapper.querySelectorAll('img');
-      const promises = Array.from(imgs).map(async (img) => {
+      // 4. Inline all remote images (including avatar photo) to base64
+      const imgs = Array.from(tempWrapper.querySelectorAll('img'));
+      await Promise.all(imgs.map(async (img) => {
         if (img.src && !img.src.startsWith('data:')) {
           try {
             const base64 = await getBase64Image(img.src);
@@ -606,9 +594,12 @@ export default function ResumePage() {
             console.warn('Failed to inline image for PDF:', img.src, e);
           }
         }
-      });
-      await Promise.all(promises);
+      }));
 
+      // 5. Sanitize element color declarations (replace oklch/lab/var with explicit Hex colors)
+      sanitizeContainerColors(tempWrapper);
+
+      // 6. Configure html2pdf with onclone document stylesheet stripper to neutralize Tailwind v4 lab rules
       const opt = {
         margin:       [0, 0, 0, 0],
         filename:     `${safeName}_Resume.pdf`,
@@ -619,6 +610,7 @@ export default function ResumePage() {
           allowTaint: true,
           letterRendering: true,
           backgroundColor: '#ffffff',
+          logging: true,
           scrollX: 0,
           scrollY: 0,
           onclone: (clonedDoc: Document) => {
@@ -636,7 +628,7 @@ export default function ResumePage() {
         jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
       };
 
-      await new Promise(resolve => setTimeout(resolve, 150));
+      await new Promise(resolve => setTimeout(resolve, 200));
 
       await html2pdf().from(tempWrapper).set(opt).save();
     } catch (err: any) {
