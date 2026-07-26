@@ -526,12 +526,15 @@ export default function ResumePage() {
       return;
     }
 
-    console.log('PDF Export Target Element:', {
+    const rect = printContent.getBoundingClientRect();
+    console.log('PDF Export Target Element Metrics:', {
       id: printContent.id,
       offsetWidth: printContent.offsetWidth,
       offsetHeight: printContent.offsetHeight,
       childCount: printContent.children.length,
-      innerHTMLLength: printContent.innerHTML.length
+      rectWidth: rect.width,
+      rectHeight: rect.height,
+      outerHTMLSnippet: printContent.outerHTML.substring(0, 300)
     });
 
     if (printContent.offsetWidth === 0 || printContent.offsetHeight === 0) {
@@ -599,7 +602,7 @@ export default function ResumePage() {
       // 5. Sanitize element color declarations (replace oklch/lab/var with explicit Hex colors)
       sanitizeContainerColors(tempWrapper);
 
-      // 6. Configure html2pdf with onclone document stylesheet stripper to neutralize Tailwind v4 lab rules
+      // 6. Configure html2pdf with onclone style text patcher (retains style tags while replacing lab/oklch colors)
       const opt = {
         margin:       [0, 0, 0, 0],
         filename:     `${safeName}_Resume.pdf`,
@@ -614,10 +617,17 @@ export default function ResumePage() {
           scrollX: 0,
           scrollY: 0,
           onclone: (clonedDoc: Document) => {
-            // Remove all style and link tags from cloned doc to eliminate Tailwind v4 lab/oklch rules
-            const styleTags = clonedDoc.querySelectorAll('style, link[rel="stylesheet"]');
+            // Patch CSS text in cloned style tags rather than removing style tags!
+            const styleTags = clonedDoc.querySelectorAll('style');
             styleTags.forEach((tag) => {
-              if (tag.parentNode) tag.parentNode.removeChild(tag);
+              if (tag.textContent) {
+                tag.textContent = tag.textContent
+                  .replace(/oklch\([^)]+\)/gi, '#111827')
+                  .replace(/oklab\([^)]+\)/gi, '#111827')
+                  .replace(/lab\([^)]+\)/gi, '#111827')
+                  .replace(/lch\([^)]+\)/gi, '#111827')
+                  .replace(/color\([^)]+\)/gi, '#111827');
+              }
             });
             if (clonedDoc.body) {
               clonedDoc.body.style.background = '#ffffff';
