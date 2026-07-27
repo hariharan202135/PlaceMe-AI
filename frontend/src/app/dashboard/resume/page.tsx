@@ -129,8 +129,9 @@ export default function ResumePage() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      if (file.type !== 'application/pdf') {
-        setErrorMsg('Please upload a PDF file only.');
+      const ext = (file.name || '').toLowerCase().split('.').pop();
+      if (ext !== 'pdf' && ext !== 'doc' && ext !== 'docx') {
+        setErrorMsg('Please upload a PDF (.pdf) or Word document (.doc, .docx).');
         setSelectedFile(null);
         return;
       }
@@ -982,7 +983,7 @@ ${base64Photo}
                 <div className="lg:col-span-1 border border-border bg-card/30 p-6 rounded-2xl space-y-4">
                   <h3 className="text-lg font-bold">Upload Resume</h3>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Drag and drop your resume or click to select a file from local storage. Only text-based PDF formats are parsed.
+                    Drag and drop your resume or click to select a file from local storage. Supports PDF, DOC, and DOCX formats.
                   </p>
 
                   {errorMsg && (
@@ -997,13 +998,13 @@ ${base64Photo}
                     <div className="border-2 border-dashed border-border rounded-xl p-8 hover:border-primary/50 transition cursor-pointer text-center relative">
                       <input
                         type="file"
-                        accept="application/pdf"
+                        accept=".pdf,.doc,.docx"
                         onChange={handleFileChange}
                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                       />
                       <UploadCloud className="w-10 h-10 text-muted-foreground mx-auto mb-2 opacity-50" />
-                      <span className="text-xs font-semibold text-foreground block">Choose PDF resume</span>
-                      <span className="text-[10px] text-muted-foreground">Max size: 5MB</span>
+                      <span className="text-xs font-semibold text-foreground block">Choose Resume (PDF, DOC, DOCX)</span>
+                      <span className="text-[10px] text-muted-foreground">Supported: .pdf, .doc, .docx (Max 5MB)</span>
                     </div>
                   ) : (
                     <div className="border border-primary bg-primary/5 rounded-xl p-4 flex items-center justify-between">

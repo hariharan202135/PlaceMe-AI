@@ -7,7 +7,7 @@ import User from '../models/User';
 import { AuthRequest } from '../middlewares/auth';
 import { analyzeResumeText } from '../utils/gemini';
 
-// 1. Upload & Analyze Resume
+// 1. Upload & Analyze Resume (PDF, DOC, DOCX)
 export const analyzeResume = async (req: AuthRequest, res: Response) => {
   const { file, fileName } = req.body; // file is base64 string
 
@@ -20,8 +20,8 @@ export const analyzeResume = async (req: AuthRequest, res: Response) => {
   }
 
   try {
-    // Convert base64 to buffer
-    const base64Data = file.replace(/^data:application\/pdf;base64,/, '');
+    // Strip base64 data prefix if present
+    const base64Data = file.replace(/^data:[^;]+;base64,/, '');
     const buffer = Buffer.from(base64Data, 'base64');
 
     // 1. Validate File Size (Max 5MB)
@@ -29,27 +29,20 @@ export const analyzeResume = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ success: false, message: 'File size exceeds maximum limit of 5MB.' });
     }
 
-    // 2. Validate PDF Signature (Magic Bytes: %PDF)
-    const isPdf = buffer.length >= 4 &&
-      buffer[0] === 0x25 && // %
-      buffer[1] === 0x50 && // P
-      buffer[2] === 0x44 && // D
-      buffer[3] === 0x46;   // F
+    const { extractTextFromBuffer } = await import('../utils/documentParser.js');
 
-    if (!isPdf) {
-      return res.status(400).json({ success: false, message: 'Invalid file format. Only PDF files are allowed.' });
-    }
-
-    // Parse PDF text
-    let resumeText = '';
+    // 2. Extract text from PDF, DOC, or DOCX automatically
+    let parsedResult;
     try {
-      const parsedPdf = await pdf(buffer);
-      resumeText = parsedPdf.text || '';
-    } catch (parseError) {
-      console.error('PDF parsing failed, utilizing string extraction fallback:', parseError);
-      // Fallback: Use string buffer dump if PDF parsing fails
-      resumeText = buffer.toString('utf-8').replace(/[^\x20-\x7E\n\r\t]/g, '');
+      parsedResult = await extractTextFromBuffer(buffer, fileName);
+    } catch (err: any) {
+      return res.status(400).json({
+        success: false,
+        message: err.message || 'Unsupported file format. Please upload a PDF (.pdf) or Microsoft Word document (.doc, .docx).'
+      });
     }
+
+    const resumeText = parsedResult.text;
 
     if (!resumeText || resumeText.trim().length < 50) {
       return res.status(400).json({ 
@@ -395,7 +388,7 @@ export const getResumePhoto = async (req: Request, res: Response) => {
   }
 };
 
-// 11. Generate Production A4 PDF using Puppeteer Chromium Engine
+// 11. High-Speed Production A4 PDF Generation using Singleton Puppeteer Engine
 export const downloadResumePDF = async (req: AuthRequest, res: Response) => {
   const { html, filename } = req.body;
 
@@ -403,80 +396,19 @@ export const downloadResumePDF = async (req: AuthRequest, res: Response) => {
     return res.status(400).json({ success: false, message: 'Please provide resume HTML content' });
   }
 
-  console.log('=== DEBUG: RECEIVED RESUME HTML ===');
-  console.log('HTML Total Length:', html.length);
+  const { getBrowserInstance } = await import('../utils/puppeteer.js');
 
-  // Save received HTML temporarily as debug.html
-  const debugHtmlPath = path.join(__dirname, '../../debug.html');
+  let page: any = null;
   try {
-    fs.writeFileSync(debugHtmlPath, html, 'utf-8');
-    console.log('Saved debug.html to:', debugHtmlPath);
-  } catch (e) {}
-
-  let browser: any = null;
-  try {
-    // 1. Try @sparticuz/chromium + puppeteer-core (for Render / Linux / Cloud container environments)
-    try {
-      const chromiumModule = await import('@sparticuz/chromium');
-      const puppeteerCoreModule = await import('puppeteer-core');
-
-      const chromium = chromiumModule.default || (chromiumModule as any);
-      const puppeteerCore = puppeteerCoreModule.default || (puppeteerCoreModule as any);
-
-      const execPath = await chromium.executablePath();
-      if (execPath) {
-        console.log('Launching Puppeteer Core via @sparticuz/chromium executablePath:', execPath);
-        browser = await puppeteerCore.launch({
-          args: [...(chromium.args || []), '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
-          defaultViewport: (chromium as any).defaultViewport,
-          executablePath: execPath,
-          headless: (chromium as any).headless === 'shell' ? 'shell' : true
-        });
-        console.log('Successfully launched browser via @sparticuz/chromium!');
-      }
-    } catch (sparticuzErr: any) {
-      console.warn('Sparticuz Chromium launch notice (switching to standard puppeteer):', sparticuzErr?.message || sparticuzErr);
-    }
-
-    // 2. Fallback to standard puppeteer (for Windows local dev or standard Linux environments)
-    if (!browser) {
-      const puppeteerModule = await import('puppeteer');
-      const puppeteer = puppeteerModule.default || (puppeteerModule as any);
-
-      const launchOptions: any = {
-        headless: 'new',
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-gpu',
-          '--no-first-run',
-          '--no-zygote',
-          '--single-process'
-        ]
-      };
-
-      if (process.env.PUPPETEER_EXECUTABLE_PATH) {
-        launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
-      }
-
-      console.log('Launching standard Puppeteer with options:', launchOptions);
-      browser = await puppeteer.launch(launchOptions);
-      console.log('Successfully launched browser via standard puppeteer!');
-    }
-
-    if (!browser) {
-      throw new Error('Could not launch Chromium browser instance.');
-    }
-
-    const page = await browser.newPage();
+    const browser = await getBrowserInstance();
+    page = await browser.newPage();
 
     await page.setViewport({ width: 1200, height: 1600, deviceScaleFactor: 2 });
 
-    // Set HTML content and wait until network is idle
+    // Set HTML content using domcontentloaded for high-speed rendering
     await page.setContent(html, {
-      waitUntil: 'networkidle0' as any,
-      timeout: 30000
+      waitUntil: 'domcontentloaded' as any,
+      timeout: 20000
     });
 
     // Inject fail-safe CSS overrides to strictly enforce 90px profile photo dimensions and 794px A4 container layout
@@ -521,41 +453,7 @@ export const downloadResumePDF = async (req: AuthRequest, res: Response) => {
       `
     });
 
-    // Wait for printable resume preview element to be visible
-    try {
-      await page.waitForSelector("#printable-resume-preview", {
-        visible: true,
-        timeout: 10000
-      });
-      console.log('Selector #printable-resume-preview found and visible!');
-    } catch (e) {
-      console.error('Selector #printable-resume-preview NOT visible or timeout:', e);
-    }
-
-    // Evaluate lengths and rect inside Chromium
-    const metrics = await page.evaluate(() => {
-      const bodyHtmlLength = document.body.innerHTML.length;
-      const previewEl = document.querySelector("#printable-resume-preview") as HTMLElement;
-      const previewHtmlLength = previewEl ? previewEl.outerHTML.length : 0;
-      const rect = previewEl ? {
-        width: previewEl.offsetWidth,
-        height: previewEl.offsetHeight,
-        top: previewEl.getBoundingClientRect().top,
-        left: previewEl.getBoundingClientRect().left
-      } : null;
-
-      return {
-        bodyHtmlLength,
-        previewHtmlLength,
-        rect
-      };
-    });
-
-    console.log('document.body.innerHTML.length:', metrics.bodyHtmlLength);
-    console.log('document.querySelector("#printable-resume-preview")?.outerHTML.length:', metrics.previewHtmlLength);
-    console.log('Preview element rect:', metrics.rect);
-
-    // Ensure all images are loaded completely
+    // Ensure all inline image data or loaded images are complete
     await page.evaluate(async () => {
       const imgs = Array.from(document.querySelectorAll('img'));
       await Promise.all(
@@ -572,16 +470,6 @@ export const downloadResumePDF = async (req: AuthRequest, res: Response) => {
     // Emulate screen media type so @media print rules do not hide elements or alter styles
     await page.emulateMediaType('screen');
 
-    // Capture screenshot debug.png before generating PDF
-    const debugPngPath = path.join(__dirname, '../../debug.png');
-    try {
-      await page.screenshot({
-        path: debugPngPath,
-        fullPage: true
-      });
-      console.log('Captured debug screenshot to:', debugPngPath);
-    } catch (e) {}
-
     const pdfBuffer = await page.pdf({
       format: 'A4',
       printBackground: true,
@@ -594,8 +482,6 @@ export const downloadResumePDF = async (req: AuthRequest, res: Response) => {
       }
     });
 
-    await browser.close();
-
     const safeFilename = (filename || 'Resume').replace(/[^a-zA-Z0-9_-]/g, '_');
 
     res.setHeader('Content-Type', 'application/pdf');
@@ -604,17 +490,17 @@ export const downloadResumePDF = async (req: AuthRequest, res: Response) => {
 
     return res.send(Buffer.from(pdfBuffer));
   } catch (error: any) {
-    if (browser) {
-      try {
-        await browser.close();
-      } catch (e) {}
-    }
     console.error('=== FULL PUPPETEER PDF STACK TRACE ERROR ===');
     console.error(error.stack || error);
     return res.status(500).json({
       success: false,
-      message: `Failed to generate PDF: ${error.message || error}`,
-      stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined
+      message: `Failed to generate PDF: ${error.message || error}`
     });
+  } finally {
+    if (page) {
+      try {
+        await page.close();
+      } catch (e) {}
+    }
   }
 };

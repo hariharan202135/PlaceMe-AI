@@ -45,8 +45,9 @@ export default function AIInterviewsPage() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      if (file.type !== 'application/pdf') {
-        setResumeError('Please upload a PDF file only.');
+      const ext = (file.name || '').toLowerCase().split('.').pop();
+      if (ext !== 'pdf' && ext !== 'doc' && ext !== 'docx') {
+        setResumeError('Please upload a PDF (.pdf) or Word document (.doc, .docx).');
         setSelectedFile(null);
         return;
       }
@@ -78,15 +79,15 @@ export default function AIInterviewsPage() {
         fileName: selectedFile.name
       };
 
-      const res = await api.post('/resume/analyze', payload);
+      const res = await api.post('/interviews/upload-resume', payload);
       if (res.data.success) {
         setHasResume(true);
-        setResumeSuccess('Resume processed! Personalized questions unlocked.');
+        setResumeSuccess(res.data.message || 'Resume processed! Personalized questions unlocked.');
         setSelectedFile(null);
       }
     } catch (err: any) {
       console.error('Error uploading resume inside interview:', err);
-      setResumeError('Failed to process resume. Please try again.');
+      setResumeError(err.response?.data?.message || 'Failed to process resume. Please try again.');
     } finally {
       setUploadingResume(false);
     }
@@ -281,7 +282,7 @@ export default function AIInterviewsPage() {
                   
                   <input
                     type="file"
-                    accept=".pdf"
+                    accept=".pdf,.doc,.docx"
                     id="interview-resume-upload"
                     onChange={handleFileChange}
                     className="hidden"
@@ -290,7 +291,7 @@ export default function AIInterviewsPage() {
                     htmlFor="interview-resume-upload"
                     className="cursor-pointer py-2 px-3 border border-border rounded-xl bg-card hover:bg-muted text-[10px] font-bold text-foreground inline-flex items-center space-x-1.5 transition w-full justify-center"
                   >
-                    <span>{selectedFile ? selectedFile.name : 'Choose PDF Resume'}</span>
+                    <span>{selectedFile ? selectedFile.name : 'Choose Resume (PDF, DOC, DOCX)'}</span>
                   </label>
 
                   {selectedFile && (

@@ -213,3 +213,63 @@ export const getInterviewHistory = async (req: AuthRequest, res: Response) => {
     res.status(500).json({ success: false, message: 'Error retrieving interview logs' });
   }
 };
+
+// 5. Upload Resume (PDF, DOC, DOCX) for Personalized HR Questions
+export const uploadResumeForInterview = async (req: AuthRequest, res: Response) => {
+  const { file, fileName } = req.body;
+
+  if (!file || !fileName) {
+    return res.status(400).json({ success: false, message: 'Please provide resume base64 file content and fileName' });
+  }
+
+  if (!req.user) {
+    return res.status(401).json({ success: false, message: 'Unauthorized' });
+  }
+
+  try {
+    const base64Data = file.replace(/^data:[^;]+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    if (buffer.length > 5 * 1024 * 1024) {
+      return res.status(400).json({ success: false, message: 'File size exceeds maximum limit of 5MB.' });
+    }
+
+    const { extractTextFromBuffer } = await import('../utils/documentParser.js');
+    const { analyzeResumeText } = await import('../utils/gemini.js');
+
+    // Extract text from PDF, DOC, or DOCX
+    const { text, fileType } = await extractTextFromBuffer(buffer, fileName);
+
+    // Analyze extracted text with Gemini
+    const analysisResult = await analyzeResumeText(text);
+
+    // Save to DB so startInterview picks up customQuestions
+    const resumeAnalysis = await ResumeAnalysis.create({
+      user: req.user._id,
+      fileName,
+      atsScore: analysisResult.atsScore,
+      skillsIdentified: analysisResult.skillsIdentified,
+      education: analysisResult.education,
+      projects: analysisResult.projects,
+      internships: analysisResult.internships,
+      certifications: analysisResult.certifications,
+      strengths: analysisResult.strengths,
+      weaknesses: analysisResult.weaknesses,
+      missingSkills: analysisResult.missingSkills,
+      suggestions: analysisResult.suggestions,
+      interviewQuestions: analysisResult.interviewQuestions
+    });
+
+    res.status(201).json({
+      success: true,
+      message: `Resume (${fileType.toUpperCase()}) uploaded and parsed successfully! Personalized HR questions generated.`,
+      analysis: resumeAnalysis
+    });
+  } catch (error: any) {
+    console.error('Interview resume upload error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Error parsing resume file'
+    });
+  }
+};
