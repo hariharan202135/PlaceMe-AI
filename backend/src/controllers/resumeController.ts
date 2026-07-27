@@ -479,6 +479,48 @@ export const downloadResumePDF = async (req: AuthRequest, res: Response) => {
       timeout: 30000
     });
 
+    // Inject fail-safe CSS overrides to strictly enforce 90px profile photo dimensions and 794px A4 container layout
+    await page.addStyleTag({
+      content: `
+        @page {
+          size: A4 portrait;
+          margin: 0;
+        }
+        html, body {
+          background-color: #ffffff !important;
+          color: #111827 !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+        #printable-resume-preview {
+          width: 794px !important;
+          min-height: 1123px !important;
+          max-width: 794px !important;
+          margin: 0 auto !important;
+          padding: 32px !important;
+          background: #ffffff !important;
+          box-sizing: border-box !important;
+          transform: none !important;
+          box-shadow: none !important;
+          border: none !important;
+        }
+        #printable-resume-preview img {
+          width: 90px !important;
+          height: 90px !important;
+          min-width: 90px !important;
+          min-height: 90px !important;
+          max-width: 90px !important;
+          max-height: 90px !important;
+          object-fit: cover !important;
+          border-radius: 50% !important;
+          flex-shrink: 0 !important;
+          display: block !important;
+        }
+      `
+    });
+
     // Wait for printable resume preview element to be visible
     try {
       await page.waitForSelector("#printable-resume-preview", {

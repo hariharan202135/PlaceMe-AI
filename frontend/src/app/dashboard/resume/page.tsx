@@ -478,9 +478,20 @@ export default function ResumePage() {
         } catch (e) {}
       }
 
-      // Collect all active document stylesheets to preserve Tailwind v4 styling
+      // Collect all active document stylesheets and convert relative hrefs to absolute URLs for Puppeteer
       const styleElements = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'));
-      const stylesHtml = styleElements.map(el => el.outerHTML).join('\n');
+      const stylesHtml = styleElements.map(el => {
+        if (el.tagName.toLowerCase() === 'link') {
+          const href = el.getAttribute('href');
+          if (href && href.startsWith('/')) {
+            const absoluteHref = `${window.location.origin}${href}`;
+            const linkClone = el.cloneNode(true) as HTMLLinkElement;
+            linkClone.setAttribute('href', absoluteHref);
+            return linkClone.outerHTML;
+          }
+        }
+        return el.outerHTML;
+      }).join('\n');
 
       const safeName = (res?.name || 'Resume').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
 
@@ -491,23 +502,47 @@ export default function ResumePage() {
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   ${stylesHtml}
   <style>
-    body {
+    @page {
+      size: A4 portrait;
+      margin: 0;
+    }
+    html, body {
       background-color: #ffffff !important;
       color: #111827 !important;
       margin: 0 !important;
       padding: 0 !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
       font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
     #printable-resume-preview {
-      width: 100% !important;
+      width: 794px !important;
+      min-height: 1123px !important;
+      max-width: 794px !important;
+      margin: 0 auto !important;
+      padding: 32px !important;
+      background: #ffffff !important;
+      box-sizing: border-box !important;
       transform: none !important;
       box-shadow: none !important;
       border: none !important;
     }
+    #printable-resume-preview img {
+      width: 90px !important;
+      height: 90px !important;
+      min-width: 90px !important;
+      min-height: 90px !important;
+      max-width: 90px !important;
+      max-height: 90px !important;
+      object-fit: cover !important;
+      border-radius: 50% !important;
+      flex-shrink: 0 !important;
+      display: block !important;
+    }
   </style>
 </head>
 <body>
-  <div style="width: 100%; max-width: 800px; margin: 0 auto; background: #ffffff;">
+  <div style="width: 794px; margin: 0 auto; background: #ffffff; padding: 0;">
     ${printContent.outerHTML}
   </div>
 </body>
