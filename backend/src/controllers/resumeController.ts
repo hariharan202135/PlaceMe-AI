@@ -403,6 +403,15 @@ export const downloadResumePDF = async (req: AuthRequest, res: Response) => {
     return res.status(400).json({ success: false, message: 'Please provide resume HTML content' });
   }
 
+  console.log('=== DEBUG: RECEIVED RESUME HTML ===');
+  console.log('HTML Total Length:', html.length);
+  console.log('HTML Snippet:', html.substring(0, 400));
+
+  // Save received HTML temporarily as debug.html
+  const debugHtmlPath = path.join(__dirname, '../../debug.html');
+  fs.writeFileSync(debugHtmlPath, html, 'utf-8');
+  console.log('Saved debug.html to:', debugHtmlPath);
+
   let browser;
   try {
     const puppeteerModule = await import('puppeteer');
@@ -425,11 +434,47 @@ export const downloadResumePDF = async (req: AuthRequest, res: Response) => {
 
     await page.setViewport({ width: 1200, height: 1600, deviceScaleFactor: 2 });
 
+    // Set HTML content and wait until network is idle
     await page.setContent(html, {
-      waitUntil: ['load', 'domcontentloaded', 'networkidle0'] as any,
+      waitUntil: 'networkidle0' as any,
       timeout: 30000
     });
 
+    // Wait for printable resume preview element to be visible
+    try {
+      await page.waitForSelector("#printable-resume-preview", {
+        visible: true,
+        timeout: 10000
+      });
+      console.log('Selector #printable-resume-preview found and visible!');
+    } catch (e) {
+      console.error('Selector #printable-resume-preview NOT visible or timeout:', e);
+    }
+
+    // Evaluate lengths and rect inside Chromium
+    const metrics = await page.evaluate(() => {
+      const bodyHtmlLength = document.body.innerHTML.length;
+      const previewEl = document.querySelector("#printable-resume-preview") as HTMLElement;
+      const previewHtmlLength = previewEl ? previewEl.outerHTML.length : 0;
+      const rect = previewEl ? {
+        width: previewEl.offsetWidth,
+        height: previewEl.offsetHeight,
+        top: previewEl.getBoundingClientRect().top,
+        left: previewEl.getBoundingClientRect().left
+      } : null;
+
+      return {
+        bodyHtmlLength,
+        previewHtmlLength,
+        rect
+      };
+    });
+
+    console.log('document.body.innerHTML.length:', metrics.bodyHtmlLength);
+    console.log('document.querySelector("#printable-resume-preview")?.outerHTML.length:', metrics.previewHtmlLength);
+    console.log('Preview element rect:', metrics.rect);
+
+    // Ensure all images are loaded completely
     await page.evaluate(async () => {
       const imgs = Array.from(document.querySelectorAll('img'));
       await Promise.all(
@@ -443,10 +488,21 @@ export const downloadResumePDF = async (req: AuthRequest, res: Response) => {
       );
     });
 
+    // Emulate screen media type so @media print rules do not hide elements or alter styles
+    await page.emulateMediaType('screen');
+
+    // Capture screenshot debug.png before generating PDF
+    const debugPngPath = path.join(__dirname, '../../debug.png');
+    await page.screenshot({
+      path: debugPngPath,
+      fullPage: true
+    });
+    console.log('Captured debug screenshot to:', debugPngPath);
+
     const pdfBuffer = await page.pdf({
       format: 'A4',
       printBackground: true,
-      preferCSSPageSize: true,
+      preferCSSPageSize: false,
       margin: {
         top: '10mm',
         bottom: '10mm',
