@@ -3,7 +3,7 @@ import Question from '../models/Question';
 import CodingSubmission from '../models/CodingSubmission';
 import User from '../models/User';
 import { AuthRequest } from '../middlewares/auth';
-import { executeCode } from '../utils/codeRunner';
+import { executeCode, normalizeOutput } from '../utils/codeRunner.js';
 
 // 1. Get Coding Problems
 export const getCodingProblems = async (req: AuthRequest, res: Response) => {
@@ -60,7 +60,7 @@ export const getCodingProblemById = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// 3. Run trial code (Run against a custom input or the first test case)
+// 3. Run code against custom test input or default test case (Trial Run)
 export const runCodingTest = async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
   const { code, language, customInput } = req.body;
@@ -75,15 +75,24 @@ export const runCodingTest = async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ success: false, message: 'Coding challenge not found' });
     }
 
-    // Get input & expected output
+    // Get input & expected output for trial execution
     let runInput = '';
     let expectedOutput = '';
 
-    if (customInput !== undefined) {
+    const testCases = problem.codingTestCases || [];
+
+    if (customInput !== undefined && customInput !== null && customInput.trim() !== '') {
       runInput = customInput;
-    } else if (problem.codingTestCases && problem.codingTestCases.length > 0) {
-      runInput = problem.codingTestCases[0].input;
-      expectedOutput = problem.codingTestCases[0].output;
+      // Search for a matching testcase input in the problem database
+      const matchedTc = testCases.find(
+        tc => normalizeOutput(tc.input) === normalizeOutput(customInput)
+      );
+      if (matchedTc) {
+        expectedOutput = matchedTc.output;
+      }
+    } else if (testCases.length > 0) {
+      runInput = testCases[0].input;
+      expectedOutput = testCases[0].output;
     }
 
     const runResult = await executeCode(code, language, runInput, expectedOutput);
