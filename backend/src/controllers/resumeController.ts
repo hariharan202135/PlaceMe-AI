@@ -405,30 +405,69 @@ export const downloadResumePDF = async (req: AuthRequest, res: Response) => {
 
   console.log('=== DEBUG: RECEIVED RESUME HTML ===');
   console.log('HTML Total Length:', html.length);
-  console.log('HTML Snippet:', html.substring(0, 400));
 
   // Save received HTML temporarily as debug.html
   const debugHtmlPath = path.join(__dirname, '../../debug.html');
-  fs.writeFileSync(debugHtmlPath, html, 'utf-8');
-  console.log('Saved debug.html to:', debugHtmlPath);
-
-  let browser;
   try {
-    const puppeteerModule = await import('puppeteer');
-    const puppeteer = puppeteerModule.default || (puppeteerModule as any);
+    fs.writeFileSync(debugHtmlPath, html, 'utf-8');
+    console.log('Saved debug.html to:', debugHtmlPath);
+  } catch (e) {}
 
-    browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--no-first-run',
-        '--no-zygote',
-        '--single-process'
-      ]
-    });
+  let browser: any = null;
+  try {
+    // 1. Try @sparticuz/chromium + puppeteer-core (for Render / Linux / Cloud container environments)
+    try {
+      const chromiumModule = await import('@sparticuz/chromium');
+      const puppeteerCoreModule = await import('puppeteer-core');
+
+      const chromium = chromiumModule.default || (chromiumModule as any);
+      const puppeteerCore = puppeteerCoreModule.default || (puppeteerCoreModule as any);
+
+      const execPath = await chromium.executablePath();
+      if (execPath) {
+        console.log('Launching Puppeteer Core via @sparticuz/chromium executablePath:', execPath);
+        browser = await puppeteerCore.launch({
+          args: [...(chromium.args || []), '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+          defaultViewport: (chromium as any).defaultViewport,
+          executablePath: execPath,
+          headless: (chromium as any).headless === 'shell' ? 'shell' : true
+        });
+        console.log('Successfully launched browser via @sparticuz/chromium!');
+      }
+    } catch (sparticuzErr: any) {
+      console.warn('Sparticuz Chromium launch notice (switching to standard puppeteer):', sparticuzErr?.message || sparticuzErr);
+    }
+
+    // 2. Fallback to standard puppeteer (for Windows local dev or standard Linux environments)
+    if (!browser) {
+      const puppeteerModule = await import('puppeteer');
+      const puppeteer = puppeteerModule.default || (puppeteerModule as any);
+
+      const launchOptions: any = {
+        headless: 'new',
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--no-first-run',
+          '--no-zygote',
+          '--single-process'
+        ]
+      };
+
+      if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+        launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+      }
+
+      console.log('Launching standard Puppeteer with options:', launchOptions);
+      browser = await puppeteer.launch(launchOptions);
+      console.log('Successfully launched browser via standard puppeteer!');
+    }
+
+    if (!browser) {
+      throw new Error('Could not launch Chromium browser instance.');
+    }
 
     const page = await browser.newPage();
 
@@ -493,11 +532,13 @@ export const downloadResumePDF = async (req: AuthRequest, res: Response) => {
 
     // Capture screenshot debug.png before generating PDF
     const debugPngPath = path.join(__dirname, '../../debug.png');
-    await page.screenshot({
-      path: debugPngPath,
-      fullPage: true
-    });
-    console.log('Captured debug screenshot to:', debugPngPath);
+    try {
+      await page.screenshot({
+        path: debugPngPath,
+        fullPage: true
+      });
+      console.log('Captured debug screenshot to:', debugPngPath);
+    } catch (e) {}
 
     const pdfBuffer = await page.pdf({
       format: 'A4',
@@ -526,10 +567,12 @@ export const downloadResumePDF = async (req: AuthRequest, res: Response) => {
         await browser.close();
       } catch (e) {}
     }
-    console.error('Puppeteer PDF Generation Error:', error);
+    console.error('=== FULL PUPPETEER PDF STACK TRACE ERROR ===');
+    console.error(error.stack || error);
     return res.status(500).json({
       success: false,
-      message: `Failed to generate PDF: ${error.message || error}`
+      message: `Failed to generate PDF: ${error.message || error}`,
+      stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined
     });
   }
 };
