@@ -29,7 +29,7 @@ interface AuthContextType {
   loading: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; message?: string }>;
   register: (name: string, email: string, password: string) => Promise<{ success: boolean; message?: string }>;
-  googleLogin: (payload: { credential?: string; name: string; email: string; avatar?: string }) => Promise<{ success: boolean }>;
+  googleLogin: (credential: string) => Promise<{ success: boolean; message?: string }>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -100,9 +100,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const googleLogin = async (payload: { credential?: string; name: string; email: string; avatar?: string }) => {
+  const googleLogin = async (credential: string) => {
     try {
-      const response = await api.post('/auth/google', payload);
+      const response = await api.post('/auth/google', { credential });
       if (response.data.success) {
         setUser(response.data.user);
         if (response.data.token) {
@@ -111,10 +111,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         router.push('/dashboard');
         return { success: true };
       }
-      return { success: false };
-    } catch (error) {
+      return { success: false, message: response.data.message || 'Google authentication failed' };
+    } catch (error: any) {
       console.error('Google login auth error:', error);
-      return { success: false };
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Google authentication failed'
+      };
     }
   };
 

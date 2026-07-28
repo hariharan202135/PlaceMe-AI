@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { validationResult } from 'express-validator';
+import { OAuth2Client } from 'google-auth-library';
 import User, { IUser } from '../models/User';
 import { AuthRequest } from '../middlewares/auth';
 import { sendResetEmail } from '../utils/mailer';
@@ -119,62 +120,94 @@ export const getMe = async (req: AuthRequest, res: Response) => {
   }
 };
 
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID);
+
 export const googleLogin = async (req: Request, res: Response) => {
-  let { credential, name, email, avatar } = req.body;
+  const { credential } = req.body;
 
-  // Try decoding JWT credential if passed from Google Identity Services
-  if (credential && typeof credential === 'string' && credential.split('.').length === 3) {
-    try {
-      const payloadBase64 = credential.split('.')[1];
-      const decodedStr = Buffer.from(payloadBase64, 'base64').toString('utf-8');
-      const decoded = JSON.parse(decodedStr);
-      if (decoded.email) email = decoded.email;
-      if (decoded.name) name = decoded.name;
-      if (decoded.picture) avatar = decoded.picture;
-    } catch (e) {
-      console.warn('Could not decode Google credential JWT:', e);
-    }
-  }
-
-  if (!email || !name) {
-    return res.status(400).json({ success: false, message: 'Missing Google user info (email and name required)' });
+  if (!credential) {
+    return res.status(400).json({ success: false, message: 'Google ID token (credential) is required.' });
   }
 
   try {
+    let googleId = '';
+    let email = '';
+    let name = '';
+    let avatar = '';
+    let isEmailVerified = false;
+
+    const clientId = process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+
+    if (clientId && clientId.trim() !== '') {
+      const ticket = await googleClient.verifyIdToken({
+        idToken: credential,
+        audience: clientId
+      });
+      const payload = ticket.getPayload();
+      if (!payload) {
+        return res.status(401).json({ success: false, message: 'Invalid Google ID token payload.' });
+      }
+      googleId = payload.sub;
+      email = payload.email || '';
+      name = payload.name || '';
+      avatar = payload.picture || '';
+      isEmailVerified = payload.email_verified || false;
+    } else {
+      // Decode JWT payload if client ID check is bypassed in local development
+      const payloadBase64 = credential.split('.')[1];
+      const decodedStr = Buffer.from(payloadBase64, 'base64').toString('utf-8');
+      const payload = JSON.parse(decodedStr);
+      googleId = payload.sub || ('google-' + Math.random().toString(36).substring(7));
+      email = payload.email || '';
+      name = payload.name || '';
+      avatar = payload.picture || '';
+      isEmailVerified = payload.email_verified || false;
+    }
+
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Could not extract valid email from Google account.' });
+    }
+
     let user = await User.findOne({ email });
 
     if (!user) {
-      // Create random password fallback
-      const randomPassword = Math.random().toString(36).substring(2, 15);
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash(randomPassword, salt);
-
+      // Create new user automatically
       user = await User.create({
-        name,
+        name: name || 'Google User',
         email,
-        password: hashedPassword,
-        avatar: avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name)}`,
-        googleId: credential ? 'google-' + Math.random().toString(36).substring(7) : undefined,
+        googleId,
+        avatar: avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name || email)}`,
+        provider: 'google',
+        isEmailVerified,
         subscription: {
           plan: 'Free',
           status: 'inactive'
         }
       });
+      console.log(`✅ Registered new user via Google OAuth: ${email}`);
     } else {
-      // Update avatar/name if provided
+      // Existing user: Link Google ID and update avatar/verification
+      if (!user.googleId) {
+        user.googleId = googleId;
+      }
       if (avatar && (!user.avatar || user.avatar.includes('dicebear'))) {
         user.avatar = avatar;
       }
-      if (name && (!user.name || user.name === 'Test Student')) {
-        user.name = name;
+      if (isEmailVerified) {
+        user.isEmailVerified = true;
       }
+      user.lastActive = new Date();
       await user.save();
+      console.log(`✅ Returning user logged in via Google OAuth: ${email}`);
     }
 
     sendTokenResponse(user, 200, res);
-  } catch (error) {
-    console.error('Google login error:', error);
-    res.status(500).json({ success: false, message: 'Server error during Google auth' });
+  } catch (error: any) {
+    console.error('Google OAuth verification error:', error);
+    return res.status(401).json({
+      success: false,
+      message: `Google authentication failed: ${error.message || error}`
+    });
   }
 };
 

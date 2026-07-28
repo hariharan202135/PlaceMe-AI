@@ -19,6 +19,8 @@ export const metadata: Metadata = {
   description: "Accelerate your placements at TCS, Infosys, Wipro, and Accenture. Features AI-powered mock HR interviews, ATS resume checkers, code compilers, and diagnostic mock tests.",
 };
 
+import GoogleProvider from "@/components/GoogleProvider";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -30,9 +32,11 @@ export default function RootLayout({
         className={`${geistSans.className} ${geistMono.className} antialiased min-h-screen bg-background text-foreground`}
       >
         <ThemeProvider>
-          <AuthProvider>
-            {children}
-          </AuthProvider>
+          <GoogleProvider>
+            <AuthProvider>
+              {children}
+            </AuthProvider>
+          </GoogleProvider>
         </ThemeProvider>
       </body>
     </html>

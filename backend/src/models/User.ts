@@ -6,6 +6,8 @@ export interface IUser extends Document {
   password?: string;
   googleId?: string;
   avatar?: string;
+  provider: 'password' | 'google';
+  isEmailVerified: boolean;
   role: 'user' | 'admin';
   placementReadinessScore: number;
   aptitudeScore: number;
@@ -40,6 +42,8 @@ const UserSchema: Schema = new Schema(
     password: { type: String, select: false },
     googleId: { type: String },
     avatar: { type: String },
+    provider: { type: String, enum: ['password', 'google'], default: 'password' },
+    isEmailVerified: { type: Boolean, default: false },
     role: { type: String, enum: ['user', 'admin'], default: 'user' },
     placementReadinessScore: { type: Number, default: 0 },
     aptitudeScore: { type: Number, default: 0 },
