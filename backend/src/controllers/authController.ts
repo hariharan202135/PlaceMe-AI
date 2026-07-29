@@ -120,7 +120,7 @@ export const getMe = async (req: AuthRequest, res: Response) => {
   }
 };
 
-const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID);
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 export const googleLogin = async (req: Request, res: Response) => {
   const { credential } = req.body;
@@ -136,7 +136,7 @@ export const googleLogin = async (req: Request, res: Response) => {
     let avatar = '';
     let isEmailVerified = false;
 
-    const clientId = process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+    const clientId = process.env.GOOGLE_CLIENT_ID;
 
     if (clientId && clientId.trim() !== '') {
       const ticket = await googleClient.verifyIdToken({
