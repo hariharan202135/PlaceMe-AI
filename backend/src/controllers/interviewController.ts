@@ -108,14 +108,26 @@ export const submitInterviewAnswer = async (req: AuthRequest, res: Response) => 
 
     const questionToEvaluate = interview.questions[questionIndex];
     
-    // Evaluate answer via Gemini
+    // Evaluate answer via Gemini / Scoring Engine
     const evaluation = await evaluateHRAnswer(interview.jobRole, questionToEvaluate.question, answer);
 
     // Save evaluated values
     interview.questions[questionIndex].answer = answer;
-    interview.questions[questionIndex].score = evaluation.score;
-    interview.questions[questionIndex].feedback = evaluation.evaluation.suggestions;
-    interview.questions[questionIndex].idealAnswer = evaluation.idealAnswer;
+    interview.questions[questionIndex].score = evaluation.overallScore;
+    interview.questions[questionIndex].technicalScore = evaluation.technicalScore;
+    interview.questions[questionIndex].communicationScore = evaluation.communicationScore;
+    interview.questions[questionIndex].grammarScore = evaluation.grammarScore;
+    interview.questions[questionIndex].confidenceScore = evaluation.confidenceScore;
+    interview.questions[questionIndex].relevanceScore = evaluation.relevanceScore;
+    interview.questions[questionIndex].problemSolvingScore = evaluation.problemSolvingScore;
+    interview.questions[questionIndex].professionalismScore = evaluation.professionalismScore;
+    interview.questions[questionIndex].strengths = evaluation.strengths;
+    interview.questions[questionIndex].weaknesses = evaluation.weaknesses;
+    interview.questions[questionIndex].feedback = evaluation.feedback;
+    interview.questions[questionIndex].improvedAnswer = evaluation.improvedAnswer;
+    interview.questions[questionIndex].recommendation = evaluation.recommendation;
+    interview.questions[questionIndex].learningSuggestions = evaluation.learningSuggestions;
+    interview.questions[questionIndex].idealAnswer = evaluation.improvedAnswer;
 
     // Use markModified for subdocument updates
     interview.markModified('questions');
@@ -124,14 +136,7 @@ export const submitInterviewAnswer = async (req: AuthRequest, res: Response) => 
     res.status(200).json({
       success: true,
       questionIndex,
-      evaluation: {
-        score: evaluation.score,
-        grammar: evaluation.evaluation.grammar,
-        confidence: evaluation.evaluation.confidence,
-        technical: evaluation.evaluation.technical,
-        suggestions: evaluation.evaluation.suggestions,
-        idealAnswer: evaluation.idealAnswer
-      }
+      evaluation
     });
   } catch (error) {
     console.error('Error submitting answer:', error);
@@ -158,36 +163,69 @@ export const completeInterview = async (req: AuthRequest, res: Response) => {
     }
 
     // Compute aggregate scores
-    let totalScore = 0;
-    let answeredQuestionsCount = 0;
+    let totalOverall = 0;
+    let totalTech = 0;
+    let totalComm = 0;
+    let totalGrammar = 0;
+    let totalConfidence = 0;
+    let totalRelevance = 0;
+    let totalProblem = 0;
+    let totalProf = 0;
+    let answeredCount = 0;
+    const allStrengths: string[] = [];
+    const allWeaknesses: string[] = [];
+    const allSuggestions: string[] = [];
 
     interview.questions.forEach(q => {
       if (q.answer && q.answer.trim().length > 0) {
-        totalScore += q.score || 0;
-        answeredQuestionsCount++;
+        totalOverall += q.score || 0;
+        totalTech += q.technicalScore || 0;
+        totalComm += q.communicationScore || 0;
+        totalGrammar += q.grammarScore || 0;
+        totalConfidence += q.confidenceScore || 0;
+        totalRelevance += q.relevanceScore || 0;
+        totalProblem += q.problemSolvingScore || 0;
+        totalProf += q.professionalismScore || 0;
+        answeredCount++;
+        if (q.strengths) allStrengths.push(...q.strengths);
+        if (q.weaknesses) allWeaknesses.push(...q.weaknesses);
+        if (q.learningSuggestions) allSuggestions.push(...q.learningSuggestions);
       }
     });
 
-    const averageScoreRaw = answeredQuestionsCount > 0 ? (totalScore / answeredQuestionsCount) : 0;
-    const finalScore = Math.round(averageScoreRaw * 10); // scale out of 100 for user dashboard compatibility
+    const avgOverall = answeredCount > 0 ? Number((totalOverall / answeredCount).toFixed(1)) : 0;
+    const avgTech = answeredCount > 0 ? Number((totalTech / answeredCount).toFixed(1)) : 0;
+    const avgComm = answeredCount > 0 ? Number((totalComm / answeredCount).toFixed(1)) : 0;
+    const avgGrammar = answeredCount > 0 ? Number((totalGrammar / answeredCount).toFixed(1)) : 0;
+    const avgConfidence = answeredCount > 0 ? Number((totalConfidence / answeredCount).toFixed(1)) : 0;
+    const avgRelevance = answeredCount > 0 ? Number((totalRelevance / answeredCount).toFixed(1)) : 0;
+    const avgProblem = answeredCount > 0 ? Number((totalProblem / answeredCount).toFixed(1)) : 0;
+    const avgProf = answeredCount > 0 ? Number((totalProf / answeredCount).toFixed(1)) : 0;
 
-    // Hardcode summary logic for evaluation metrics (or compute average profiles)
-    interview.overallScore = finalScore;
+    const recommendation: 'Pass' | 'Borderline' | 'Fail' =
+      avgOverall >= 8.0 ? 'Pass' : avgOverall >= 5.0 ? 'Borderline' : 'Fail';
+
+    interview.overallScore = avgOverall;
+    interview.technicalScore = avgTech;
+    interview.communicationScore = avgComm;
+    interview.grammarScore = avgGrammar;
+    interview.confidenceScore = avgConfidence;
+    interview.relevanceScore = avgRelevance;
+    interview.problemSolvingScore = avgProblem;
+    interview.professionalismScore = avgProf;
+    interview.recommendation = recommendation;
+    interview.strengths = Array.from(new Set(allStrengths)).slice(0, 6);
+    interview.weaknesses = Array.from(new Set(allWeaknesses)).slice(0, 6);
+    interview.learningSuggestions = Array.from(new Set(allSuggestions)).slice(0, 6);
     interview.status = 'completed';
-    
-    interview.evaluation = {
-      grammar: finalScore >= 80 ? 'Excellent syntactic clarity and vocabulary.' : finalScore >= 60 ? 'Satisfactory grammar with occasional minor structure issues.' : 'Needs focus on verb agreement and sentence framing.',
-      confidence: finalScore >= 80 ? 'Assertive tone, direct answers, and professional vocabulary.' : finalScore >= 60 ? 'Generally comfortable, can be more direct.' : 'Indicates hesitation, expand replies with positive statements.',
-      technical: finalScore >= 80 ? 'Strong alignment with tech role duties and terminology.' : finalScore >= 60 ? 'Accurate conceptually but lacks deep domain specificity.' : 'Lacks technical references; needs revision of domain keynotes.',
-      suggestions: 'Consistently apply the STAR method. Keep practicing mock HR interviews. Add specific metric results to project examples.'
-    };
 
     await interview.save();
 
-    // Sync to user profile
+    // Sync user profile hrScore
     const user = await User.findById(req.user._id);
     if (user) {
-      user.hrScore = user.hrScore > 0 ? Math.round((user.hrScore + finalScore) / 2) : finalScore;
+      const scaledHrScore = Math.round(avgOverall * 10);
+      user.hrScore = user.hrScore > 0 ? Math.round((user.hrScore + scaledHrScore) / 2) : scaledHrScore;
       await user.save();
     }
 

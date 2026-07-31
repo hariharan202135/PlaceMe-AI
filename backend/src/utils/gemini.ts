@@ -69,8 +69,23 @@ export const generateHRQuestions = async (jobRole: string): Promise<string[]> =>
   }
 };
 
-// 2. Evaluate HR Interview Answer
-interface IEvaluationResult {
+export interface IEvaluationResult {
+  overallScore: number;
+  technicalScore: number;
+  communicationScore: number;
+  grammarScore: number;
+  confidenceScore: number;
+  relevanceScore: number;
+  problemSolvingScore: number;
+  professionalismScore: number;
+  strengths: string[];
+  weaknesses: string[];
+  feedback: string;
+  improvedAnswer: string;
+  recommendation: 'Pass' | 'Borderline' | 'Fail';
+  learningSuggestions: string[];
+
+  // Legacy compatibility fields:
   score: number;
   evaluation: {
     grammar: string;
@@ -86,91 +101,176 @@ export const evaluateHRAnswer = async (
   question: string,
   answer: string
 ): Promise<IEvaluationResult> => {
-  const answerLower = answer.trim().toLowerCase();
-  const wordCount = answer.trim().split(/\s+/).filter(Boolean).length;
-  
-  // Checks for nonsense, keyboard spam, or evasive answers
-  const isGibberish = /^(.)\1{4,}$/.test(answerLower) || /^[asdfghjklqpwoeurytizmxncbv\s]{1,4}$/i.test(answerLower);
-  const isNegative = [
-    "don't know", "dont know", "no idea", "skip", "pass", "wrong", 
-    "i do not know", "i dont know", "nothing", "nonsense", "no answer", 
-    "no", "nope", "test", "demo", "asdf"
-  ].some(token => answerLower.includes(token));
+  const answerClean = (answer || '').trim();
+  const answerLower = answerClean.toLowerCase();
+  const wordCount = answerClean ? answerClean.split(/\s+/).filter(Boolean).length : 0;
 
-  let finalScore = 5;
-  let grammarFeedback = 'Good sentence structure and flow.';
-  let confidenceFeedback = 'Confident, professional delivery.';
-  let technicalFeedback = 'Direct alignment with the question.';
-  let suggestions = 'Expand with real-life examples and metrics.';
+  // Evasive, empty, or gibberish checks
+  const isZeroScoreText =
+    wordCount === 0 ||
+    ["nnn", "asdf", "123", ".", "hello", "test", "nothing", "i don't know", "dont know", "no idea", "skip", "pass", "no answer"]
+      .some(t => answerLower === t || answerLower.includes(t)) ||
+    /^(.)\1{3,}$/.test(answerLower) ||
+    /^[asdfghjklqpwoeurytizmxncbv\s]{1,4}$/i.test(answerLower);
 
-  if (wordCount < 4 || isNegative || isGibberish || answer.length < 12) {
-    finalScore = 1.5; // low score for wrong/empty answers
-    grammarFeedback = 'Insufficient text to evaluate grammar parameters.';
-    confidenceFeedback = 'Shows hesitation or lack of details.';
-    technicalFeedback = 'Does not address the question topics.';
-    suggestions = 'Please provide a complete, professional answer of at least 2-3 sentences explaining your hands-on experience.';
+  const isVeryShort = !isZeroScoreText && (wordCount <= 3 || ["yes", "no", "maybe", "i think"].includes(answerLower));
+
+  // Determine fallback evaluation according to exact scoring rules
+  let fallbackOverall = 7.0;
+  let fallbackTech = 7.0;
+  let fallbackComm = 7.5;
+  let fallbackGrammar = 7.5;
+  let fallbackConfidence = 7.0;
+  let fallbackRelevance = 7.5;
+  let fallbackProblem = 7.0;
+  let fallbackProf = 7.5;
+  let fallbackRec: 'Pass' | 'Borderline' | 'Fail' = 'Borderline';
+  let fallbackStrengths: string[] = ['Direct response to interviewer prompt', 'Professional vocabulary'];
+  let fallbackWeaknesses: string[] = ['Could include more quantitative results', 'Expand on implementation steps'];
+  let fallbackFeedback = 'Good response overall. Consider structuring with Situation, Task, Action, Result (STAR).';
+  let fallbackImproved = `An ideal response for ${jobRole}: "In my previous experience, I addressed a similar requirement by analyzing core trade-offs, implementing robust architecture patterns, and validating with unit tests to achieve high performance."`;
+  let fallbackSuggestions: string[] = ['Practice STAR method framing', 'Review domain design patterns', 'Prepare quantitative project metrics'];
+
+  if (isZeroScoreText) {
+    fallbackOverall = 0;
+    fallbackTech = 0;
+    fallbackComm = 0;
+    fallbackGrammar = 0;
+    fallbackConfidence = 0;
+    fallbackRelevance = 0;
+    fallbackProblem = 0;
+    fallbackProf = 0;
+    fallbackRec = 'Fail';
+    fallbackStrengths = [];
+    fallbackWeaknesses = ['No substantive content provided', 'Failed to address the interview question', 'Inadequate answer length'];
+    fallbackFeedback = 'Answer was empty, evasive, or contained random characters. Please provide a relevant technical response.';
+    fallbackSuggestions = ['Re-read the question carefully', 'Structure your answer with 3-4 complete sentences', 'Use domain-specific technical terminology'];
+  } else if (isVeryShort) {
+    fallbackOverall = 1.5;
+    fallbackTech = 1.0;
+    fallbackComm = 1.5;
+    fallbackGrammar = 2.0;
+    fallbackConfidence = 1.5;
+    fallbackRelevance = 2.0;
+    fallbackProblem = 1.0;
+    fallbackProf = 2.0;
+    fallbackRec = 'Fail';
+    fallbackStrengths = ['Brief acknowledgment'];
+    fallbackWeaknesses = ['Extremely short answer lacking explanation', 'No technical depth', 'Cannot evaluate problem solving'];
+    fallbackFeedback = 'Answer is too brief for an HR / Technical interview. Please elaborate on your experience.';
+    fallbackSuggestions = ['Expand on your hands-on role in projects', 'Explain why and how you solved the problem', 'Highlight relevant tools and frameworks'];
   } else {
-    // Normal length-based dynamic score calculation
-    finalScore = Math.min(10, Math.max(3, Math.round(wordCount / 8) + 3));
-    if (wordCount < 15) {
-      grammarFeedback = 'Grammar is acceptable, but the answer is too brief.';
-      suggestions = 'Expand your answer using the STAR methodology (Situation, Task, Action, Result).';
-    }
-    if (!answerLower.includes('i can') && !answerLower.includes('experience') && !answerLower.includes('project')) {
-      confidenceFeedback = 'Passable, but could express assertions more strongly.';
-    }
-    if (!answerLower.includes(jobRole.toLowerCase()) && wordCount < 20) {
-      technicalFeedback = 'Lacks specific technical alignment with the target role.';
-    }
+    // Length & keyword based scoring
+    fallbackTech = Math.min(9.5, Math.max(4.0, Math.round((wordCount / 6) + 4)));
+    fallbackOverall = Math.min(9.5, Math.max(4.0, Number((fallbackTech * 0.95).toFixed(1))));
+    fallbackRec = fallbackOverall >= 8.0 ? 'Pass' : fallbackOverall >= 5.0 ? 'Borderline' : 'Fail';
   }
 
-  const fallbackEvaluation: IEvaluationResult = {
-    score: finalScore,
+  const fallbackResult: IEvaluationResult = {
+    overallScore: fallbackOverall,
+    technicalScore: fallbackTech,
+    communicationScore: fallbackComm,
+    grammarScore: fallbackGrammar,
+    confidenceScore: fallbackConfidence,
+    relevanceScore: fallbackRelevance,
+    problemSolvingScore: fallbackProblem,
+    professionalismScore: fallbackProf,
+    strengths: fallbackStrengths,
+    weaknesses: fallbackWeaknesses,
+    feedback: fallbackFeedback,
+    improvedAnswer: fallbackImproved,
+    recommendation: fallbackRec,
+    learningSuggestions: fallbackSuggestions,
+
+    // Legacy fields
+    score: fallbackOverall,
     evaluation: {
-      grammar: grammarFeedback,
-      confidence: confidenceFeedback,
-      technical: technicalFeedback,
-      suggestions: suggestions
+      grammar: `Grammar Score: ${fallbackGrammar}/10`,
+      confidence: `Confidence Score: ${fallbackConfidence}/10`,
+      technical: `Technical Score: ${fallbackTech}/10`,
+      suggestions: fallbackFeedback
     },
-    idealAnswer: `An ideal response would explain your experience in ${jobRole}, highlighting key technical skills, project problem solving, and cultural alignment. For example: "I have worked on projects leveraging relevant technologies, resolved architecture bottlenecks by doing X, and enjoy collaborative agile environments..."`
+    idealAnswer: fallbackImproved
   };
 
   const client = getGenAIClient();
   if (!client) {
-    console.warn('⚠️ Gemini API key not configured or mock. Using fallback text evaluation logic.');
-    return fallbackEvaluation;
+    console.warn('⚠️ Gemini API key not configured or mock. Returning fallback scoring engine evaluation.');
+    return fallbackResult;
   }
 
   try {
-    const prompt = `You are an HR director evaluating a candidate's answer for the role of: "${jobRole}".
-    
-    Question asked: "${question}"
-    Candidate's Answer: "${answer}"
-    
-    Evaluate the candidate's response and return a strict JSON object with:
-    1. "score" (a number between 1 and 10, to 1 decimal place)
-    2. "evaluation" (an object containing brief text strings for "grammar", "confidence", "technical", and "suggestions")
-    3. "idealAnswer" (a professional exemplar answer answering the question concisely)
-    
-    Output ONLY valid JSON. No markdown wrappers, no descriptions, no backticks.`;
+    const prompt = `You are PlaceMe AI's Expert HR Interviewer and Senior Technical Recruiter evaluating a candidate for the role of: "${jobRole}".
+
+Question asked: "${question}"
+Candidate's Answer: "${answerClean}"
+
+EVALUATION & SCORING RULES:
+1. Score between 0 and 10 (1 decimal place).
+2. If answer is empty or contains random characters ("nnn", "asdf", "123", ".", "hello", "test", "nothing", "don't know", "no idea"):
+   overallScore = 0, recommendation = "Fail".
+3. Extremely short answers ("yes", "no", "maybe", "I think"): overallScore between 0 and 2.
+4. Ratings: Excellent (9.2-10), Very Good (8-9), Good (6.5-8), Average (5-6.5), Weak (2-5), Very Poor (0-2). Do NOT inflate scores.
+5. If speech-to-text filler words ("uh", "umm", "like") or minor STT transcription errors exist, ignore them and evaluate actual meaning; slightly adjust communication score if excessive.
+6. Recommendation rules:
+   overallScore >= 8: "Pass"
+   overallScore 5 to 8: "Borderline"
+   overallScore < 5: "Fail"
+
+Return ONLY valid JSON (no markdown wrappers, no backticks, no comments):
+{
+  "overallScore": 8.6,
+  "technicalScore": 9.0,
+  "communicationScore": 8.5,
+  "grammarScore": 9.0,
+  "confidenceScore": 8.0,
+  "relevanceScore": 10.0,
+  "problemSolvingScore": 8.5,
+  "professionalismScore": 9.0,
+  "strengths": ["Clear technical explanation", "Well structured STAR response", "Strong problem solving"],
+  "weaknesses": ["Could provide specific outcome metrics", "Minor pause in explanation"],
+  "feedback": "Great explanation of your architecture approach.",
+  "improvedAnswer": "An improved exemplar answer goes here...",
+  "recommendation": "Pass",
+  "learningSuggestions": ["Topic 1", "Topic 2", "Topic 3"]
+}`;
 
     const responseText = await generateContentSafe(client, prompt);
     const cleanJSON = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
     const resultObj = JSON.parse(cleanJSON);
 
+    const ovScore = Number(resultObj.overallScore) ?? fallbackOverall;
+    const rec = resultObj.recommendation || (ovScore >= 8.0 ? 'Pass' : ovScore >= 5.0 ? 'Borderline' : 'Fail');
+
     return {
-      score: Number(resultObj.score) || 7,
+      overallScore: ovScore,
+      technicalScore: Number(resultObj.technicalScore) ?? fallbackTech,
+      communicationScore: Number(resultObj.communicationScore) ?? fallbackComm,
+      grammarScore: Number(resultObj.grammarScore) ?? fallbackGrammar,
+      confidenceScore: Number(resultObj.confidenceScore) ?? fallbackConfidence,
+      relevanceScore: Number(resultObj.relevanceScore) ?? fallbackRelevance,
+      problemSolvingScore: Number(resultObj.problemSolvingScore) ?? fallbackProblem,
+      professionalismScore: Number(resultObj.professionalismScore) ?? fallbackProf,
+      strengths: Array.isArray(resultObj.strengths) ? resultObj.strengths : fallbackStrengths,
+      weaknesses: Array.isArray(resultObj.weaknesses) ? resultObj.weaknesses : fallbackWeaknesses,
+      feedback: resultObj.feedback || fallbackFeedback,
+      improvedAnswer: resultObj.improvedAnswer || fallbackImproved,
+      recommendation: rec,
+      learningSuggestions: Array.isArray(resultObj.learningSuggestions) ? resultObj.learningSuggestions : fallbackSuggestions,
+
+      // Legacy fields
+      score: ovScore,
       evaluation: {
-        grammar: resultObj.evaluation?.grammar || 'Good grammar',
-        confidence: resultObj.evaluation?.confidence || 'Professional tone',
-        technical: resultObj.evaluation?.technical || 'Correct response',
-        suggestions: resultObj.evaluation?.suggestions || 'Expand on specific details'
+        grammar: `Grammar Score: ${Number(resultObj.grammarScore) || 8}/10`,
+        confidence: `Confidence Score: ${Number(resultObj.confidenceScore) || 8}/10`,
+        technical: `Technical Score: ${Number(resultObj.technicalScore) || 8}/10`,
+        suggestions: resultObj.feedback || fallbackFeedback
       },
-      idealAnswer: resultObj.idealAnswer || 'exemplar'
+      idealAnswer: resultObj.improvedAnswer || fallbackImproved
     };
   } catch (error) {
     console.error('Error evaluating answer via Gemini:', error);
-    return fallbackEvaluation;
+    return fallbackResult;
   }
 };
 

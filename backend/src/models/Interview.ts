@@ -4,7 +4,19 @@ export interface IInterviewQuestion {
   question: string;
   answer?: string;
   score?: number;
+  technicalScore?: number;
+  communicationScore?: number;
+  grammarScore?: number;
+  confidenceScore?: number;
+  relevanceScore?: number;
+  problemSolvingScore?: number;
+  professionalismScore?: number;
+  strengths?: string[];
+  weaknesses?: string[];
   feedback?: string;
+  improvedAnswer?: string;
+  recommendation?: 'Pass' | 'Borderline' | 'Fail';
+  learningSuggestions?: string[];
   idealAnswer?: string;
 }
 
@@ -13,6 +25,17 @@ export interface IInterview extends Document {
   jobRole: string;
   questions: IInterviewQuestion[];
   overallScore: number;
+  technicalScore?: number;
+  communicationScore?: number;
+  grammarScore?: number;
+  confidenceScore?: number;
+  relevanceScore?: number;
+  problemSolvingScore?: number;
+  professionalismScore?: number;
+  recommendation?: 'Pass' | 'Borderline' | 'Fail';
+  strengths?: string[];
+  weaknesses?: string[];
+  learningSuggestions?: string[];
   evaluation?: {
     grammar: string;
     confidence: string;
@@ -32,12 +55,35 @@ const InterviewSchema: Schema = new Schema(
       {
         question: { type: String, required: true },
         answer: { type: String },
-        score: { type: Number },
+        score: { type: Number, default: 0 },
+        technicalScore: { type: Number, default: 0 },
+        communicationScore: { type: Number, default: 0 },
+        grammarScore: { type: Number, default: 0 },
+        confidenceScore: { type: Number, default: 0 },
+        relevanceScore: { type: Number, default: 0 },
+        problemSolvingScore: { type: Number, default: 0 },
+        professionalismScore: { type: Number, default: 0 },
+        strengths: [{ type: String }],
+        weaknesses: [{ type: String }],
         feedback: { type: String },
+        improvedAnswer: { type: String },
+        recommendation: { type: String, enum: ['Pass', 'Borderline', 'Fail'] },
+        learningSuggestions: [{ type: String }],
         idealAnswer: { type: String }
       }
     ],
     overallScore: { type: Number, default: 0 },
+    technicalScore: { type: Number, default: 0 },
+    communicationScore: { type: Number, default: 0 },
+    grammarScore: { type: Number, default: 0 },
+    confidenceScore: { type: Number, default: 0 },
+    relevanceScore: { type: Number, default: 0 },
+    problemSolvingScore: { type: Number, default: 0 },
+    professionalismScore: { type: Number, default: 0 },
+    recommendation: { type: String, enum: ['Pass', 'Borderline', 'Fail'], default: 'Borderline' },
+    strengths: [{ type: String }],
+    weaknesses: [{ type: String }],
+    learningSuggestions: [{ type: String }],
     evaluation: {
       grammar: { type: String },
       confidence: { type: String },
