@@ -96,6 +96,127 @@ export interface IEvaluationResult {
   idealAnswer: string;
 }
 
+// Helper to safely convert any value to a valid number without returning NaN or undefined
+export const safeScoreNumber = (val: any, defaultVal = 0): number => {
+  if (val === null || val === undefined || val === '') return defaultVal;
+  const num = Number(val);
+  return isNaN(num) ? defaultVal : Number(num.toFixed(1));
+};
+
+// Helper to parse, validate, and sanitize evaluation JSON response safely
+export const parseAndValidateEvaluation = (
+  responseText: string,
+  fallback: IEvaluationResult
+): IEvaluationResult => {
+  console.log('RAW GEMINI RESPONSE:', responseText);
+
+  // 1. Extract clean text & remove markdown code fences
+  const extractedText = (responseText || '')
+    .replace(/```json/gi, '')
+    .replace(/```/g, '')
+    .trim();
+
+  console.log('EXTRACTED TEXT:', extractedText);
+
+  let parsedObj: any = null;
+
+  // 2. Safe JSON Parse
+  try {
+    parsedObj = JSON.parse(extractedText);
+    console.log('PARSED JSON:', parsedObj);
+  } catch (err: any) {
+    console.error('⚠️ JSON Parse Error in evaluateHRAnswer:', err.message);
+    console.log('VALIDATION RESULT: FAIL (Malformed JSON)');
+    console.log('DISPLAYED VALUES:', {
+      overallScore: fallback.overallScore,
+      technicalScore: fallback.technicalScore,
+      communicationScore: fallback.communicationScore,
+      grammarScore: fallback.grammarScore,
+      confidenceScore: fallback.confidenceScore
+    });
+    return fallback;
+  }
+
+  if (!parsedObj || typeof parsedObj !== 'object') {
+    console.log('VALIDATION RESULT: FAIL (Non-object payload)');
+    return fallback;
+  }
+
+  // 3. Extract & sanitize all required fields (never allow NaN or undefined)
+  const overallScore = safeScoreNumber(parsedObj.overallScore ?? parsedObj.score, fallback.overallScore);
+  const technicalScore = safeScoreNumber(parsedObj.technicalScore, fallback.technicalScore);
+  const communicationScore = safeScoreNumber(parsedObj.communicationScore, fallback.communicationScore);
+  const grammarScore = safeScoreNumber(parsedObj.grammarScore, fallback.grammarScore);
+  const confidenceScore = safeScoreNumber(parsedObj.confidenceScore, fallback.confidenceScore);
+  const relevanceScore = safeScoreNumber(parsedObj.relevanceScore, fallback.relevanceScore);
+  const problemSolvingScore = safeScoreNumber(parsedObj.problemSolvingScore, fallback.problemSolvingScore);
+  const professionalismScore = safeScoreNumber(parsedObj.professionalismScore, fallback.professionalismScore);
+
+  const strengths = Array.isArray(parsedObj.strengths) && parsedObj.strengths.length > 0
+    ? parsedObj.strengths.map(String)
+    : fallback.strengths;
+
+  const weaknesses = Array.isArray(parsedObj.weaknesses) && parsedObj.weaknesses.length > 0
+    ? parsedObj.weaknesses.map(String)
+    : fallback.weaknesses;
+
+  const feedback = String(parsedObj.feedback || parsedObj.evaluation?.suggestions || fallback.feedback);
+  const improvedAnswer = String(parsedObj.improvedAnswer || parsedObj.idealAnswer || fallback.improvedAnswer);
+
+  let recommendation: 'Pass' | 'Borderline' | 'Fail' = fallback.recommendation;
+  if (['Pass', 'Borderline', 'Fail'].includes(parsedObj.recommendation)) {
+    recommendation = parsedObj.recommendation;
+  } else {
+    recommendation = overallScore >= 8.0 ? 'Pass' : overallScore >= 5.0 ? 'Borderline' : 'Fail';
+  }
+
+  const learningSuggestions = Array.isArray(parsedObj.learningSuggestions) && parsedObj.learningSuggestions.length > 0
+    ? parsedObj.learningSuggestions.map(String)
+    : fallback.learningSuggestions;
+
+  const validatedResult: IEvaluationResult = {
+    overallScore,
+    technicalScore,
+    communicationScore,
+    grammarScore,
+    confidenceScore,
+    relevanceScore,
+    problemSolvingScore,
+    professionalismScore,
+    strengths,
+    weaknesses,
+    feedback,
+    improvedAnswer,
+    recommendation,
+    learningSuggestions,
+
+    // Legacy compatibility fields
+    score: overallScore,
+    evaluation: {
+      grammar: `Grammar Score: ${grammarScore}/10`,
+      confidence: `Confidence Score: ${confidenceScore}/10`,
+      technical: `Technical Score: ${technicalScore}/10`,
+      suggestions: feedback
+    },
+    idealAnswer: improvedAnswer
+  };
+
+  console.log('VALIDATION RESULT: PASS');
+  console.log('DISPLAYED VALUES:', {
+    overallScore: validatedResult.overallScore,
+    technicalScore: validatedResult.technicalScore,
+    communicationScore: validatedResult.communicationScore,
+    grammarScore: validatedResult.grammarScore,
+    confidenceScore: validatedResult.confidenceScore,
+    relevanceScore: validatedResult.relevanceScore,
+    problemSolvingScore: validatedResult.problemSolvingScore,
+    professionalismScore: validatedResult.professionalismScore,
+    recommendation: validatedResult.recommendation
+  });
+
+  return validatedResult;
+};
+
 export const evaluateHRAnswer = async (
   jobRole: string,
   question: string,
@@ -236,40 +357,9 @@ Return ONLY valid JSON (no markdown wrappers, no backticks, no comments):
 }`;
 
     const responseText = await generateContentSafe(client, prompt);
-    const cleanJSON = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
-    const resultObj = JSON.parse(cleanJSON);
-
-    const ovScore = Number(resultObj.overallScore) ?? fallbackOverall;
-    const rec = resultObj.recommendation || (ovScore >= 8.0 ? 'Pass' : ovScore >= 5.0 ? 'Borderline' : 'Fail');
-
-    return {
-      overallScore: ovScore,
-      technicalScore: Number(resultObj.technicalScore) ?? fallbackTech,
-      communicationScore: Number(resultObj.communicationScore) ?? fallbackComm,
-      grammarScore: Number(resultObj.grammarScore) ?? fallbackGrammar,
-      confidenceScore: Number(resultObj.confidenceScore) ?? fallbackConfidence,
-      relevanceScore: Number(resultObj.relevanceScore) ?? fallbackRelevance,
-      problemSolvingScore: Number(resultObj.problemSolvingScore) ?? fallbackProblem,
-      professionalismScore: Number(resultObj.professionalismScore) ?? fallbackProf,
-      strengths: Array.isArray(resultObj.strengths) ? resultObj.strengths : fallbackStrengths,
-      weaknesses: Array.isArray(resultObj.weaknesses) ? resultObj.weaknesses : fallbackWeaknesses,
-      feedback: resultObj.feedback || fallbackFeedback,
-      improvedAnswer: resultObj.improvedAnswer || fallbackImproved,
-      recommendation: rec,
-      learningSuggestions: Array.isArray(resultObj.learningSuggestions) ? resultObj.learningSuggestions : fallbackSuggestions,
-
-      // Legacy fields
-      score: ovScore,
-      evaluation: {
-        grammar: `Grammar Score: ${Number(resultObj.grammarScore) || 8}/10`,
-        confidence: `Confidence Score: ${Number(resultObj.confidenceScore) || 8}/10`,
-        technical: `Technical Score: ${Number(resultObj.technicalScore) || 8}/10`,
-        suggestions: resultObj.feedback || fallbackFeedback
-      },
-      idealAnswer: resultObj.improvedAnswer || fallbackImproved
-    };
-  } catch (error) {
-    console.error('Error evaluating answer via Gemini:', error);
+    return parseAndValidateEvaluation(responseText, fallbackResult);
+  } catch (error: any) {
+    console.error('Error evaluating answer via Gemini:', error?.message || error);
     return fallbackResult;
   }
 };

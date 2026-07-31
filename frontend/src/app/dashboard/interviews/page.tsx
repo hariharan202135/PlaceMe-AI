@@ -812,19 +812,27 @@ export default function AIInterviewsPage() {
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                           <div className="p-2 rounded-lg bg-card border border-border text-center">
                             <div className="text-[10px] text-muted-foreground uppercase font-semibold">Technical</div>
-                            <div className="text-sm font-extrabold text-emerald-400">{msg.evaluation.technicalScore}/10</div>
+                            <div className="text-sm font-extrabold text-emerald-400">
+                              {msg.evaluation.technicalScore ?? 0}/10
+                            </div>
                           </div>
                           <div className="p-2 rounded-lg bg-card border border-border text-center">
                             <div className="text-[10px] text-muted-foreground uppercase font-semibold">Communication</div>
-                            <div className="text-sm font-extrabold text-amber-400">{msg.evaluation.communicationScore}/10</div>
+                            <div className="text-sm font-extrabold text-amber-400">
+                              {msg.evaluation.communicationScore ?? 0}/10
+                            </div>
                           </div>
                           <div className="p-2 rounded-lg bg-card border border-border text-center">
                             <div className="text-[10px] text-muted-foreground uppercase font-semibold">Grammar</div>
-                            <div className="text-sm font-extrabold text-indigo-400">{msg.evaluation.grammarScore}/10</div>
+                            <div className="text-sm font-extrabold text-indigo-400">
+                              {msg.evaluation.grammarScore ?? 0}/10
+                            </div>
                           </div>
                           <div className="p-2 rounded-lg bg-card border border-border text-center">
                             <div className="text-[10px] text-muted-foreground uppercase font-semibold">Confidence</div>
-                            <div className="text-sm font-extrabold text-pink-400">{msg.evaluation.confidenceScore}/10</div>
+                            <div className="text-sm font-extrabold text-pink-400">
+                              {msg.evaluation.confidenceScore ?? 0}/10
+                            </div>
                           </div>
                         </div>
 
