@@ -109,7 +109,16 @@ export const submitInterviewAnswer = async (req: AuthRequest, res: Response) => 
     const questionToEvaluate = interview.questions[questionIndex];
     
     // Evaluate answer via Gemini / Scoring Engine
-    const evaluation = await evaluateHRAnswer(interview.jobRole, questionToEvaluate.question, answer);
+    let evaluation;
+    try {
+      evaluation = await evaluateHRAnswer(interview.jobRole, questionToEvaluate.question, answer);
+    } catch (evalErr: any) {
+      console.error('⚠️ Evaluation error:', evalErr?.message || evalErr);
+      return res.status(400).json({
+        success: false,
+        error: 'Evaluation parsing failed.'
+      });
+    }
 
     // Save evaluated values
     interview.questions[questionIndex].answer = answer;
@@ -133,14 +142,18 @@ export const submitInterviewAnswer = async (req: AuthRequest, res: Response) => 
     interview.markModified('questions');
     await interview.save();
 
-    res.status(200).json({
+    const responsePayload = {
       success: true,
       questionIndex,
       evaluation
-    });
+    };
+
+    console.log('STEP 7 - BACKEND API RESPONSE:', JSON.stringify(responsePayload, null, 2));
+
+    res.status(200).json(responsePayload);
   } catch (error) {
     console.error('Error submitting answer:', error);
-    res.status(500).json({ success: false, message: 'Error saving and evaluating answer' });
+    res.status(500).json({ success: false, error: 'Evaluation parsing failed.' });
   }
 };
 

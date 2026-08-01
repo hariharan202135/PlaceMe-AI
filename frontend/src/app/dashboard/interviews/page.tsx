@@ -346,8 +346,11 @@ export default function AIInterviewsPage() {
         answer: answerText
       });
 
+      console.log('STEP 8 - REACT RECEIVED JSON:', res.data);
+
       if (res.data.success) {
         const evaluation: IQuestionEvaluation = res.data.evaluation;
+        console.log('STEP 9 - REACT RENDER OBJECT:', evaluation);
 
         const evalMsg: IChatMessage = {
           id: `msg-eval-${Date.now()}`,

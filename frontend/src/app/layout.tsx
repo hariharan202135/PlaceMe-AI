@@ -4,15 +4,8 @@ import "./globals.css";
 import { AuthProvider } from "@/context/AuthContext";
 import { ThemeProvider } from "@/context/ThemeContext";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+const geistSans = { className: "font-sans" };
+const geistMono = { className: "font-mono" };
 
 export const metadata: Metadata = {
   title: "PlaceMe AI | Production-Ready AI Placement Prep",
