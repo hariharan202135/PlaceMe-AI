@@ -245,184 +245,115 @@ export const evaluateHRAnswer = async (
 ): Promise<IEvaluationResult> => {
   const answerClean = (answer || '').trim();
   const answerLower = answerClean.toLowerCase();
-  const wordCount = answerClean ? answerClean.split(/\s+/).filter(Boolean).length : 0;
+  const words = answerClean ? answerClean.split(/\s+/).filter(Boolean) : [];
+  const wordCount = words.length;
 
-  // STEP 1 & STEP 2 LOGGING
-  console.log('STEP 1 - INTERVIEW QUESTION:', question);
-  console.log('STEP 2 - CANDIDATE ANSWER:', answerClean);
+  console.log('TASK 8 - QUESTION:', question);
+  console.log('TASK 8 - CANDIDATE ANSWER:', answerClean);
 
-  // Exact-token check ONLY for explicit empty or gibberish (No regex matching 1-4 letter words)
-  const exactZeroTokens = ["asdf", "nnn", "123", ".", "hello", "nothing"];
-  const exactEvasiveTokens = ["i don't know", "dont know", "i dont know", "no idea"];
+  // TASK 5: Detect irrelevant / short / evasive / empty answers BEFORE calling Gemini
+  const explicitZeroTokens = [
+    "no", "yes", "idk", "don't know", "dont know", "i don't know", "i dont know",
+    "no idea", "nnn", "asdf", "123", ".", "hello", "nothing", "na", "n/a", "none"
+  ];
 
-  const isZeroScore = wordCount === 0 || exactZeroTokens.includes(answerLower) || /^(.)\1{4,}$/.test(answerLower);
-  const isEvasiveScore = !isZeroScore && exactEvasiveTokens.includes(answerLower);
+  const isRepeatedChar = /^(.)\1{3,}$/.test(answerLower);
+  const isTooShort = wordCount < 5;
+  const isExplicitZero = explicitZeroTokens.includes(answerLower);
 
-  // High quality local fallback object
-  const localFallback: IEvaluationResult = {
-    overallScore: 8.5,
-    technicalScore: 8.8,
-    communicationScore: 8.2,
-    grammarScore: 8.5,
-    confidenceScore: 8.0,
-    relevanceScore: 8.8,
-    problemSolvingScore: 8.2,
-    professionalismScore: 8.5,
-    strengths: ['Technically accurate response', 'Direct answer to question'],
-    weaknesses: ['Could include quantitative metric results'],
-    feedback: 'Technically correct answer. Good explanation of key concepts.',
-    improvedAnswer: `An exemplar response for ${jobRole}: "${answerClean}"`,
-    recommendation: 'Pass',
-    learningSuggestions: ['STAR method presentation', 'Advanced domain concepts'],
-    score: 8.5,
-    evaluation: {
-      grammar: 'Grammar Score: 8.5/10',
-      confidence: 'Confidence Score: 8.0/10',
-      technical: 'Technical Score: 8.8/10',
-      suggestions: 'Technically correct answer.'
-    },
-    idealAnswer: `An exemplar response for ${jobRole}: "${answerClean}"`
-  };
+  if (wordCount === 0 || isExplicitZero || isRepeatedChar || isTooShort) {
+    const answerAlpha = answerLower.replace(/[^a-z'\s]/g, '').trim();
+    const isEvasive = ["i don't know", "dont know", "i dont know", "no idea", "idk"].includes(answerAlpha);
+    const scoreVal = isEvasive ? 1 : 0;
+    const weaknessMsg = isTooShort ? "Answer is too short or insufficient" : "Irrelevant or insufficient answer";
+    const feedbackMsg = isEvasive
+      ? "Candidate indicated lack of knowledge for this question."
+      : "The answer is too short, non-substantive, or unrelated.";
 
-  if (isZeroScore) {
-    return {
-      overallScore: 0,
-      technicalScore: 0,
-      communicationScore: 0,
-      grammarScore: 0,
-      confidenceScore: 0,
-      relevanceScore: 0,
-      problemSolvingScore: 0,
-      professionalismScore: 0,
-      strengths: [],
-      weaknesses: ["Answer was empty or contained gibberish"],
-      feedback: "Answer was empty or contained random characters. Please provide a substantive response.",
-      improvedAnswer: `An exemplar answer for ${jobRole}: "..."`,
-      recommendation: "Fail",
-      learningSuggestions: ["Provide complete technical answers"],
-      score: 0,
-      evaluation: {
-        grammar: "Grammar Score: 0/10",
-        confidence: "Confidence Score: 0/10",
-        technical: "Technical Score: 0/10",
-        suggestions: "Answer was empty or gibberish."
-      },
-      idealAnswer: ""
-    };
-  }
-
-  if (isEvasiveScore) {
-    return {
-      overallScore: 1,
-      technicalScore: 1,
+    const task5EarlyReturn: IEvaluationResult = {
+      overallScore: scoreVal,
+      technicalScore: scoreVal,
       communicationScore: 1,
       grammarScore: 1,
-      confidenceScore: 1,
-      relevanceScore: 1,
-      problemSolvingScore: 1,
-      professionalismScore: 1,
+      confidenceScore: scoreVal,
+      relevanceScore: scoreVal,
+      problemSolvingScore: scoreVal,
+      professionalismScore: scoreVal,
       strengths: [],
-      weaknesses: ["Candidate indicated lack of knowledge"],
-      feedback: "Candidate indicated lack of knowledge for this question.",
-      improvedAnswer: `An exemplar answer for ${jobRole}: "..."`,
+      weaknesses: [weaknessMsg],
+      feedback: feedbackMsg,
+      improvedAnswer: `An exemplar answer for ${jobRole}: "Provide a comprehensive, technical explanation explaining concepts with clear examples."`,
       recommendation: "Fail",
-      learningSuggestions: ["Review fundamental role concepts"],
-      score: 1,
+      learningSuggestions: ["Provide complete technical answers", "Study core domain fundamentals"],
+      score: scoreVal,
       evaluation: {
         grammar: "Grammar Score: 1/10",
-        confidence: "Confidence Score: 1/10",
-        technical: "Technical Score: 1/10",
-        suggestions: "Candidate indicated lack of knowledge."
+        confidence: `Confidence Score: ${scoreVal}/10`,
+        technical: `Technical Score: ${scoreVal}/10`,
+        suggestions: feedbackMsg
       },
       idealAnswer: ""
     };
+
+    console.log('TASK 5 - EARLY DETECTED IRRELEVANT ANSWER (SKIPPED GEMINI):', task5EarlyReturn);
+    return task5EarlyReturn;
   }
 
-  // STEP 3 PROMPT BUILDING
-  const prompt = `You are PlaceMe AI's Expert HR Interviewer and Senior Technical Recruiter.
-Evaluate the candidate's answer for the role of: "${jobRole}".
+  // TASK 4 & 6: DYNAMIC EVALUATION PROMPT CALIBRATION
+  const prompt = `You are an expert technical interviewer evaluating a candidate for the role of: "${jobRole}".
 
-Question asked: "${question}"
+Question: "${question}"
 Candidate's Answer: "${answerClean}"
 
-EVALUATION & CALIBRATION GUIDELINES:
-1. Technically correct, clear, and relevant answers MUST receive HIGH scores:
-   - Overall: 8.0-10.0
-   - Technical: 8.5-10.0
-   - Communication: 8.0-10.0
-   - Grammar: 8.0-10.0
-   - Recommendation: "Pass"
-   - Example: For "Difference between overloading and overriding", a correct answer explaining parameter lists vs inheritance receives Overall: 8.5-10, Technical: 9+, Pass.
-   - Example: For "What is garbage collection?", a correct answer explaining automatic memory deallocation receives Overall: 8.0-10, Technical: 8+.
-2. If speech-to-text filler words ("uh", "umm", "like") or minor STT transcription artifacts exist, IGNORE them and evaluate the underlying technical meaning.
-3. Recommendation rules:
-   - overallScore >= 8.0: "Pass"
-   - overallScore 5.0 to 7.9: "Borderline"
-   - overallScore < 5.0: "Fail"
+STRICT EVALUATION INSTRUCTIONS:
+- Evaluate ONLY this specific answer against the question and job role.
+- Be highly dynamic and strictly assign scores based on the actual technical accuracy and completeness:
+  * 9.0–10.0: Perfect, comprehensive, accurate answer with deep technical insights or clear examples.
+  * 7.0–8.9: Good, correct answer covering core concepts well.
+  * 5.0–6.9: Average answer; partially correct or missing important details.
+  * 2.0–4.9: Weak answer with significant errors, vagueness, or inaccuracies.
+  * 0.0–1.9: Completely incorrect or irrelevant answer.
 
-Return ONLY valid JSON in this exact structure (no markdown wrappers, no backticks, no comments):
+Return ONLY a valid JSON object matching this exact structure:
 {
-  "overallScore": 8.8,
-  "technicalScore": 9.2,
-  "communicationScore": 8.5,
-  "grammarScore": 8.8,
-  "confidenceScore": 8.5,
-  "relevanceScore": 9.5,
-  "problemSolvingScore": 8.8,
-  "professionalismScore": 9.0,
-  "strengths": ["Accurate explanation", "Clear technical terminology"],
-  "weaknesses": ["Could provide specific outcome metrics"],
-  "feedback": "Excellent technical response.",
-  "improvedAnswer": "An improved exemplar response...",
+  "overallScore": 8.5,
+  "technicalScore": 8.8,
+  "communicationScore": 8.2,
+  "grammarScore": 8.5,
+  "confidenceScore": 8.0,
+  "relevanceScore": 8.8,
+  "problemSolvingScore": 8.2,
+  "professionalismScore": 8.5,
+  "strengths": ["Accurate explanation of key concepts"],
+  "weaknesses": ["Could provide more technical depth"],
+  "feedback": "Clear explanation of the concept.",
+  "improvedAnswer": "A complete exemplar answer...",
   "recommendation": "Pass",
-  "learningSuggestions": ["Topic 1", "Topic 2"]
+  "learningSuggestions": ["Advanced topic review"]
 }`;
 
-  console.log('STEP 3 - GEMINI PROMPT:\n' + prompt);
+  console.log('TASK 6 - PROMPT SENT TO GEMINI:\n' + prompt);
 
   const client = await getGenAIClient();
   if (!client) {
-    console.warn('⚠️ Gemini API client not configured or mock. Using high-quality local fallback.');
-    return localFallback;
+    console.warn('⚠️ Gemini API client unavailable.');
+    throw new Error('Gemini API client unavailable');
   }
 
-  // ATTEMPT 1
   try {
-    const rawResponse1 = await generateContentSafe(client, prompt);
-    console.log('STEP 4 - RAW GEMINI RESPONSE (ATTEMPT 1):\n' + rawResponse1);
+    const rawResponse = await generateContentSafe(client, prompt);
+    console.log('TASK 2 / TASK 8 - RAW GEMINI EVALUATION JSON:\n' + rawResponse);
 
-    const cleanText1 = (rawResponse1 || '').replace(/```json/gi, '').replace(/```/g, '').trim();
-    console.log('STEP 5 - CLEANED TEXT BEFORE PARSE (ATTEMPT 1):\n' + cleanText1);
-
-    const parsedObj1 = JSON.parse(cleanText1);
-    console.log('STEP 6 - PARSED JSON OBJECT (ATTEMPT 1):', parsedObj1);
-
-    const validated1 = parseAndValidateEvaluation(rawResponse1, null);
-    if (validated1) return validated1;
-  } catch (err1: any) {
-    console.warn('⚠️ Gemini Attempt 1 Parsing Failed:', err1?.message || err1);
+    const validated = parseAndValidateEvaluation(rawResponse, null);
+    if (validated) {
+      console.log('TASK 8 - FINAL JSON RETURNED BY BACKEND:', validated);
+      return validated;
+    }
+  } catch (err: any) {
+    console.error('⚠️ Gemini Evaluation Error:', err?.message || err);
   }
 
-  // ATTEMPT 2 (Retry once as required by Task 11)
-  try {
-    console.log('🔄 Retrying Gemini evaluation (ATTEMPT 2)...');
-    const rawResponse2 = await generateContentSafe(client, prompt);
-    console.log('STEP 4 - RAW GEMINI RESPONSE (ATTEMPT 2):\n' + rawResponse2);
-
-    const cleanText2 = (rawResponse2 || '').replace(/```json/gi, '').replace(/```/g, '').trim();
-    console.log('STEP 5 - CLEANED TEXT BEFORE PARSE (ATTEMPT 2):\n' + cleanText2);
-
-    const parsedObj2 = JSON.parse(cleanText2);
-    console.log('STEP 6 - PARSED JSON OBJECT (ATTEMPT 2):', parsedObj2);
-
-    const validated2 = parseAndValidateEvaluation(rawResponse2, null);
-    if (validated2) return validated2;
-  } catch (err2: any) {
-    console.warn('⚠️ Gemini Attempt 2 Parsing Failed:', err2?.message || err2);
-  }
-
-  console.warn('⚠️ Gemini API evaluation failed or offline. Returning calibrated evaluation result.');
-  return localFallback;
+  throw new Error('Failed to obtain a valid evaluation score from Gemini.');
 };
 
 // 3. Analyze Resume (ATS & Skill identification)
