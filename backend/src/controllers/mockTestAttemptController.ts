@@ -2,7 +2,7 @@ import { Response } from 'express';
 import MockTest from '../models/MockTest';
 import TestResult from '../models/TestResult';
 import Question from '../models/Question';
-import { getGenAIClient, GEMINI_MODEL } from '../utils/gemini';
+import { getGenAIClient, generateContentSafe, GEMINI_MODEL } from '../utils/gemini';
 import { AuthRequest } from '../middlewares/auth';
 
 // 1. Start or resume a Mock Test Attempt
@@ -210,10 +210,9 @@ export const submitMockTestAttempt = async (req: AuthRequest, res: Response) => 
 
     // 4. Generate AI SWOT Feedback using Gemini
     let aiFeedbackText = '';
-    const client = getGenAIClient();
+    const client = await getGenAIClient();
     if (client) {
       try {
-        const model = client.getGenerativeModel({ model: GEMINI_MODEL });
         const prompt = `You are a placement preparation trainer. Evaluate the following candidate mock test performance:
         - Mock Test Title: ${mockTest.title}
         - Total Score: ${totalScore}/${maxScore} (${passPercentage.toFixed(1)}%)
@@ -225,8 +224,7 @@ export const submitMockTestAttempt = async (req: AuthRequest, res: Response) => 
 
         Provide a concise SWOT analysis report (Strengths, Weaknesses, Opportunities, Threats) and a brief 3-step action item preparation schedule. Write in clean markdown without any surrounding backticks.`;
 
-        const result = await model.generateContent(prompt);
-        aiFeedbackText = result.response.text().trim();
+        aiFeedbackText = await generateContentSafe(client, prompt);
       } catch (geminiErr) {
         console.error('Error generating mock test feedback via Gemini:', geminiErr);
       }

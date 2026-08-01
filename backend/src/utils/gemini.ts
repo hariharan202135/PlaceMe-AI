@@ -1,36 +1,37 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
-
-// Currently supported official model name (TASK 2 & 7)
-export const GEMINI_MODEL = 'gemini-1.5-flash';
+// Currently supported model name (TASK 2 & 7)
+export const GEMINI_MODEL = 'gemini-2.5-flash';
 console.log("Using Gemini model:", GEMINI_MODEL);
 
-// Initialize GenAI client safely
-export const getGenAIClient = () => {
+// Initialize GenAI client safely using official @google/genai SDK (ESM compatible)
+export const getGenAIClient = async (): Promise<any> => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === 'your_gemini_api_key_here' || apiKey.startsWith('mock')) {
     return null;
   }
-  return new GoogleGenerativeAI(apiKey);
+  try {
+    const { GoogleGenAI } = await (eval('import("@google/genai")') as Promise<any>);
+    return new GoogleGenAI({ apiKey });
+  } catch (err: any) {
+    console.error('⚠️ Failed to load @google/genai SDK:', err?.message || err);
+    return null;
+  }
 };
 
-// Helper to call single valid Gemini model (TASK 5 & 6)
+// Helper to call single valid Gemini model via @google/genai (TASK 5 & 6)
 export const generateContentSafe = async (client: any, prompt: string): Promise<string> => {
-  const modelsToTry = [GEMINI_MODEL, 'gemini-1.5-pro'];
-  let lastErr: any = null;
-
-  for (const m of modelsToTry) {
-    try {
-      const modelInstance = client.getGenerativeModel({ model: m });
-      const result = await modelInstance.generateContent(prompt);
-      if (result && result.response) {
-        return result.response.text().trim();
-      }
-    } catch (err: any) {
-      console.error(`❌ Gemini model "${m}" error:`, err.message || err);
-      lastErr = err;
+  try {
+    const response = await client.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: prompt
+    });
+    if (response && response.text) {
+      return response.text.trim();
     }
+    throw new Error('Empty response received from Gemini API');
+  } catch (err: any) {
+    console.error(`❌ Gemini model "${GEMINI_MODEL}" error:`, err.message || err);
+    throw err;
   }
-  throw lastErr || new Error('Gemini API content generation failed.');
 };
 
 // 1. Generate HR Interview Questions
@@ -43,7 +44,7 @@ export const generateHRQuestions = async (jobRole: string): Promise<string[]> =>
     `Where do you see yourself in five years, and how does this position align with your goals?`
   ];
 
-  const client = getGenAIClient();
+  const client = await getGenAIClient();
   if (!client) {
     console.warn('⚠️ Gemini API key not configured or mock. Using high-quality default HR questions.');
     return defaultQuestions;
@@ -379,7 +380,7 @@ Return ONLY valid JSON in this exact structure (no markdown wrappers, no backtic
 
   console.log('STEP 3 - GEMINI PROMPT:\n' + prompt);
 
-  const client = getGenAIClient();
+  const client = await getGenAIClient();
   if (!client) {
     console.warn('⚠️ Gemini API client not configured or mock. Using high-quality local fallback.');
     return localFallback;
