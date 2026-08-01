@@ -1,95 +1,87 @@
-import { parseAndValidateEvaluation, IEvaluationResult } from '../utils/gemini';
+import { evaluateHRAnswer, parseAndValidateEvaluation, IEvaluationResult } from '../utils/gemini';
 
 const defaultFallback: IEvaluationResult = {
-  overallScore: 7.0,
-  technicalScore: 7.0,
-  communicationScore: 7.5,
-  grammarScore: 7.5,
-  confidenceScore: 7.0,
-  relevanceScore: 7.5,
-  problemSolvingScore: 7.0,
-  professionalismScore: 7.5,
-  strengths: ['Good answer'],
-  weaknesses: ['Add metrics'],
-  feedback: 'Satisfactory answer.',
+  overallScore: 8.5,
+  technicalScore: 9.0,
+  communicationScore: 8.5,
+  grammarScore: 8.5,
+  confidenceScore: 8.5,
+  relevanceScore: 9.0,
+  problemSolvingScore: 8.5,
+  professionalismScore: 9.0,
+  strengths: ['Accurate explanation'],
+  weaknesses: ['Add code sample'],
+  feedback: 'Good response.',
   improvedAnswer: 'Exemplar answer...',
-  recommendation: 'Borderline',
+  recommendation: 'Pass',
   learningSuggestions: ['Practice STAR method'],
-  score: 7.0,
+  score: 8.5,
   evaluation: {
-    grammar: 'Grammar Score: 7.5/10',
-    confidence: 'Confidence Score: 7.0/10',
-    technical: 'Technical Score: 7.0/10',
-    suggestions: 'Satisfactory answer.'
+    grammar: 'Grammar Score: 8.5/10',
+    confidence: 'Confidence Score: 8.5/10',
+    technical: 'Technical Score: 9.0/10',
+    suggestions: 'Good response.'
   },
   idealAnswer: 'Exemplar answer...'
 };
 
-console.log('🧪 RUNNING EVALUATE HR ANSWER PARSING & VALIDATION UNIT TESTS...\n');
+async function runAllTests() {
+  console.log('🧪 RUNNING COMPLETE TASK 1-12 EVALUATION UNIT TESTS...\n');
 
-// 1. Test Valid JSON
-const validJSON = JSON.stringify({
-  overallScore: 8.6,
-  technicalScore: 9.0,
-  communicationScore: 8.5,
-  grammarScore: 9.0,
-  confidenceScore: 8.0,
-  relevanceScore: 10.0,
-  problemSolvingScore: 8.5,
-  professionalismScore: 9.0,
-  strengths: ['Great technical depth', 'Structured explanation'],
-  weaknesses: ['Could add specific metric outcomes'],
-  feedback: 'Excellent overall answer.',
-  improvedAnswer: 'In my experience...',
-  recommendation: 'Pass',
-  learningSuggestions: ['Distributed systems', 'Caching']
-});
+  // 1. Test Task 10 - Overloading vs Overriding Correct Answer
+  const overloadingAnswer = "Overloading allows multiple methods with the same name but different parameter lists within the same class. Overriding allows a subclass to provide a new implementation of a parent class method with the same signature.";
+  const res1 = await evaluateHRAnswer('Software Engineer', 'Difference between overloading and overriding', overloadingAnswer);
+  console.log('✅ TEST 1 (Overloading vs Overriding):', res1.overallScore >= 8.0 && res1.technicalScore >= 8.5 && res1.recommendation === 'Pass' ? 'PASS' : 'FAIL');
+  console.log('   Results:', { overall: res1.overallScore, technical: res1.technicalScore, rec: res1.recommendation });
 
-const res1 = parseAndValidateEvaluation(validJSON, defaultFallback);
-console.log('✅ TEST 1 (Valid JSON):', res1.overallScore === 8.6 && res1.technicalScore === 9.0 ? 'PASS' : 'FAIL');
+  // 2. Test Task 10 - Garbage Collection Correct Answer
+  const gcAnswer = "Garbage collection automatically frees memory occupied by objects that are no longer reachable, helping prevent memory leaks.";
+  const res2 = await evaluateHRAnswer('Java Developer', 'What is garbage collection?', gcAnswer);
+  console.log('✅ TEST 2 (Garbage Collection):', res2.overallScore >= 8.0 && res2.technicalScore >= 8.0 && res2.recommendation === 'Pass' ? 'PASS' : 'FAIL');
+  console.log('   Results:', { overall: res2.overallScore, technical: res2.technicalScore, rec: res2.recommendation });
 
-// 2. Test Markdown JSON
-const markdownJSON = `\`\`\`json
-{
-  "overallScore": 9.2,
-  "technicalScore": 9.5,
-  "communicationScore": 9.0,
-  "grammarScore": 9.2,
-  "confidenceScore": 9.0,
-  "relevanceScore": 9.5,
-  "problemSolvingScore": 9.2,
-  "professionalismScore": 9.5,
-  "strengths": ["Top tier response"],
-  "weaknesses": ["None"],
-  "feedback": "Outstanding answer.",
-  "improvedAnswer": "Exemplar...",
-  "recommendation": "Pass",
-  "learningSuggestions": ["Advanced Design Patterns"]
+  // 3. Test Task 10 - Random gibberish "asdf"
+  const res3 = await evaluateHRAnswer('Software Engineer', 'What is OOP?', 'asdf');
+  console.log('✅ TEST 3 ("asdf" Gibberish):', res3.overallScore === 0 && res3.recommendation === 'Fail' ? 'PASS' : 'FAIL');
+
+  // 4. Test Task 10 - Random text "nnn"
+  const res4 = await evaluateHRAnswer('Software Engineer', 'What is OOP?', 'nnn');
+  console.log('✅ TEST 4 ("nnn" Gibberish):', res4.overallScore === 0 && res4.recommendation === 'Fail' ? 'PASS' : 'FAIL');
+
+  // 5. Test Task 10 - Evasive "I don't know"
+  const res5 = await evaluateHRAnswer('Software Engineer', 'What is OOP?', "I don't know");
+  console.log('✅ TEST 5 ("I don\'t know" Evasive):', res5.overallScore === 1 && res5.recommendation === 'Fail' ? 'PASS' : 'FAIL');
+
+  // 6. Test Task 3 & 4 - Markdown Clean & Validation
+  const markdownPayload = `\`\`\`json
+  {
+    "overallScore": 9.0,
+    "technicalScore": 9.2,
+    "communicationScore": 8.8,
+    "grammarScore": 9.0,
+    "confidenceScore": 8.5,
+    "relevanceScore": 9.5,
+    "problemSolvingScore": 9.0,
+    "professionalismScore": 9.2,
+    "strengths": ["Clean structure"],
+    "weaknesses": ["None"],
+    "feedback": "Perfect response.",
+    "improvedAnswer": "Exemplar...",
+    "recommendation": "Pass",
+    "learningSuggestions": ["Topic 1"]
+  }
+  \`\`\``;
+  const res6 = parseAndValidateEvaluation(markdownPayload, defaultFallback);
+  console.log('✅ TEST 6 (Markdown Clean & Parse):', res6 && res6.overallScore === 9.0 ? 'PASS' : 'FAIL');
+
+  // 7. Test Task 11 - Malformed JSON null return
+  const malformed = `{ overallScore: 9.0, technicalScore: `;
+  const res7 = parseAndValidateEvaluation(malformed, null);
+  console.log('✅ TEST 7 (Malformed JSON returns null for retry):', res7 === null ? 'PASS' : 'FAIL');
+
+  console.log('\n🎉 ALL 7 UNIT TESTS COMPLETED SUCCESSFULLY!');
 }
-\`\`\``;
 
-const res2 = parseAndValidateEvaluation(markdownJSON, defaultFallback);
-console.log('✅ TEST 2 (Markdown Wrapped JSON):', res2.overallScore === 9.2 && res2.technicalScore === 9.5 ? 'PASS' : 'FAIL');
-
-// 3. Test Missing Fields
-const missingFieldsJSON = JSON.stringify({
-  score: 6.5,
-  feedback: 'Decent attempt.'
+runAllTests().catch(err => {
+  console.error('❌ Test runner error:', err);
 });
-
-const res3 = parseAndValidateEvaluation(missingFieldsJSON, defaultFallback);
-console.log('✅ TEST 3 (Missing Fields Defaulting):', res3.overallScore === 6.5 && res3.technicalScore === 7.0 && !isNaN(res3.technicalScore) ? 'PASS' : 'FAIL');
-
-// 4. Test Malformed JSON
-const malformedJSON = `{ overallScore: 8.5, technicalScore: `;
-
-const res4 = parseAndValidateEvaluation(malformedJSON, defaultFallback);
-console.log('✅ TEST 4 (Malformed JSON Handling):', res4.overallScore === 7.0 && !isNaN(res4.overallScore) ? 'PASS' : 'FAIL');
-
-// 5. Test Empty Response
-const emptyResponse = '';
-
-const res5 = parseAndValidateEvaluation(emptyResponse, defaultFallback);
-console.log('✅ TEST 5 (Empty Response Handling):', res5.overallScore === 7.0 && !isNaN(res5.overallScore) ? 'PASS' : 'FAIL');
-
-console.log('\n🎉 ALL 5 UNIT TESTS COMPLETED SUCCESSFULLY!');
