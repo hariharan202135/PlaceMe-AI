@@ -1,5 +1,9 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
+// Currently supported model name (TASK 2 & 7)
+export const GEMINI_MODEL = 'gemini-2.5-flash';
+console.log("Using Gemini model:", GEMINI_MODEL);
+
 // Initialize GenAI client safely
 export const getGenAIClient = () => {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -9,27 +13,19 @@ export const getGenAIClient = () => {
   return new GoogleGenerativeAI(apiKey);
 };
 
-// Helper to call Gemini safely with multiple fallback models to prevent 404 model errors on older/newer keys
-export const generateContentSafe = async (client: any, prompt: string, defaultModel = 'gemini-1.5-flash'): Promise<string> => {
-  const modelsToTry = [defaultModel, 'gemini-1.5-flash-latest', 'gemini-1.5-pro', 'gemini-pro', 'gemini-1.0-pro'];
-  let lastError = null;
-  for (const model of modelsToTry) {
-    try {
-      const modelInstance = client.getGenerativeModel({ model });
-      const result = await modelInstance.generateContent(prompt);
-      if (result && result.response) {
-        return result.response.text().trim();
-      }
-    } catch (err: any) {
-      console.warn(`⚠️ Gemini model "${model}" failed:`, err.message || err);
-      lastError = err;
-      if (err.message && err.message.includes('API_KEY_INVALID')) {
-        throw err;
-      }
-      continue;
+// Helper to call single valid Gemini model without deprecated fallback loops (TASK 5 & 6)
+export const generateContentSafe = async (client: any, prompt: string): Promise<string> => {
+  try {
+    const modelInstance = client.getGenerativeModel({ model: GEMINI_MODEL });
+    const result = await modelInstance.generateContent(prompt);
+    if (result && result.response) {
+      return result.response.text().trim();
     }
+    throw new Error('Empty response received from Gemini API');
+  } catch (err: any) {
+    console.error(`❌ Gemini model "${GEMINI_MODEL}" error:`, err.message || err);
+    throw err;
   }
-  throw lastError || new Error('All Gemini model fallbacks failed.');
 };
 
 // 1. Generate HR Interview Questions

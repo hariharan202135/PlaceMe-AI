@@ -2,7 +2,7 @@ import { Response } from 'express';
 import MockTest from '../models/MockTest';
 import TestResult from '../models/TestResult';
 import Question from '../models/Question';
-import { getGenAIClient } from '../utils/gemini';
+import { getGenAIClient, GEMINI_MODEL } from '../utils/gemini';
 import { AuthRequest } from '../middlewares/auth';
 
 // 1. Start or resume a Mock Test Attempt
@@ -213,7 +213,7 @@ export const submitMockTestAttempt = async (req: AuthRequest, res: Response) => 
     const client = getGenAIClient();
     if (client) {
       try {
-        const model = client.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        const model = client.getGenerativeModel({ model: GEMINI_MODEL });
         const prompt = `You are a placement preparation trainer. Evaluate the following candidate mock test performance:
         - Mock Test Title: ${mockTest.title}
         - Total Score: ${totalScore}/${maxScore} (${passPercentage.toFixed(1)}%)

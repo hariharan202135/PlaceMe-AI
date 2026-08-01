@@ -5,7 +5,7 @@ import {
 } from '../controllers/prepController';
 import { protect, optionalProtect } from '../middlewares/auth';
 
-import { getGenAIClient } from '../utils/gemini';
+import { getGenAIClient, GEMINI_MODEL } from '../utils/gemini';
 
 const router = express.Router();
 
@@ -15,7 +15,7 @@ router.get('/test-gemini', async (req, res) => {
     if (!client) {
       return res.status(400).json({ success: false, message: 'Gemini client is null/mock. Check if GEMINI_API_KEY environment variable is configured.' });
     }
-    const model = client.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = client.getGenerativeModel({ model: GEMINI_MODEL });
     const result = await model.generateContent('Say hello!');
     res.json({ success: true, text: result.response.text() });
   } catch (error: any) {
