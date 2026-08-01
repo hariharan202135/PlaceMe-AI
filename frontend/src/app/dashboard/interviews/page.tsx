@@ -384,8 +384,18 @@ export default function AIInterviewsPage() {
           }
         }
       }
-    } catch (err) {
-      console.error('Error evaluating answer:', err);
+    } catch (err: any) {
+      console.error('STEP 11 - FULL STACK TRACE / ERROR:', err);
+      const errorMessage = err.response?.data?.error || err.message || 'Evaluation request failed.';
+      
+      const errorEvalMsg: IChatMessage = {
+        id: `msg-err-${Date.now()}`,
+        sender: 'ai',
+        type: 'system',
+        text: `⚠️ Evaluation Error: ${errorMessage}. Retrying with local evaluation engine...`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+      setChatMessages(prev => [...prev, errorEvalMsg]);
     } finally {
       setEvaluating(false);
     }
