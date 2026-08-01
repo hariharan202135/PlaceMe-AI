@@ -105,60 +105,116 @@ export const safeScoreNumber = (val: any, defaultVal = 0): number => {
   return isNaN(num) ? defaultVal : Number(num.toFixed(1));
 };
 
+// TASK 2: Robust Balanced Brace JSON Parser
+export const extractJsonObject = (text: string): string | null => {
+  if (!text) return null;
+  const startIdx = text.indexOf('{');
+  if (startIdx === -1) return null;
+
+  let braceCount = 0;
+  let inString = false;
+  let isEscaped = false;
+
+  for (let i = startIdx; i < text.length; i++) {
+    const char = text[i];
+
+    if (isEscaped) {
+      isEscaped = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      isEscaped = true;
+      continue;
+    }
+
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (!inString) {
+      if (char === '{') {
+        braceCount++;
+      } else if (char === '}') {
+        braceCount--;
+        if (braceCount === 0) {
+          return text.substring(startIdx, i + 1);
+        }
+      }
+    }
+  }
+
+  return null;
+};
+
 // Helper to parse, validate, and sanitize evaluation JSON response safely
 export const parseAndValidateEvaluation = (
   responseText: string,
   fallback: IEvaluationResult | null = null
 ): IEvaluationResult | null => {
-  console.log('TASK 1 - RAW GEMINI RESPONSE:', responseText);
+  console.log('TASK 5 - RAW GEMINI RESPONSE:\n' + responseText);
 
-  // 1. Extract clean text & remove markdown code fences (TASK 3)
-  const extractedText = (responseText || '')
-    .replace(/```json/gi, '')
-    .replace(/```/g, '')
-    .trim();
+  // Extract ONLY first valid JSON object using balanced brace parser (TASK 2)
+  const extractedText = extractJsonObject(responseText);
+  console.log('TASK 5 - EXTRACTED JSON:\n' + (extractedText || 'null'));
 
-  console.log('TASK 2 - EXTRACTED TEXT:', extractedText);
+  if (!extractedText) {
+    console.log('TASK 5 - VALIDATION RESULT: FAIL (No JSON object found)');
+    return fallback;
+  }
 
   let parsedObj: any = null;
-
-  // 2. Safe JSON Parse (TASK 4)
   try {
     parsedObj = JSON.parse(extractedText);
-    console.log('TASK 6 - PARSED JSON:', parsedObj);
+    console.log('TASK 5 - PARSED JSON:', parsedObj);
   } catch (err: any) {
     console.error('⚠️ JSON Parse Error in evaluateHRAnswer:', err.message);
-    console.log('TASK 6 - VALIDATION RESULT: FAIL (Malformed JSON)');
+    console.log('TASK 5 - VALIDATION RESULT: FAIL (Malformed JSON)');
     return fallback;
   }
 
   if (!parsedObj || typeof parsedObj !== 'object') {
-    console.log('TASK 6 - VALIDATION RESULT: FAIL (Non-object payload)');
+    console.log('TASK 5 - VALIDATION RESULT: FAIL (Non-object payload)');
     return fallback;
   }
 
-  // 3. Extract & sanitize all required fields (never allow NaN or undefined - TASK 7 & 9)
+  // TASK 3: Validate every required field
+  const requiredFields = [
+    'overallScore',
+    'technicalScore',
+    'communicationScore',
+    'grammarScore',
+    'confidenceScore',
+    'strengths',
+    'weaknesses',
+    'feedback',
+    'improvedAnswer',
+    'recommendation'
+  ];
+
+  const missingFields = requiredFields.filter(f => parsedObj[f] === undefined || parsedObj[f] === null);
+  if (missingFields.length > 0) {
+    console.warn('⚠️ Missing required fields in Gemini JSON:', missingFields);
+    console.log('TASK 5 - VALIDATION RESULT: FAIL (Missing required fields)');
+    return fallback;
+  }
+
   const overallScore = safeScoreNumber(parsedObj.overallScore ?? parsedObj.score, fallback?.overallScore ?? 0);
   const technicalScore = safeScoreNumber(parsedObj.technicalScore, fallback?.technicalScore ?? 0);
   const communicationScore = safeScoreNumber(parsedObj.communicationScore, fallback?.communicationScore ?? 0);
   const grammarScore = safeScoreNumber(parsedObj.grammarScore, fallback?.grammarScore ?? 0);
   const confidenceScore = safeScoreNumber(parsedObj.confidenceScore, fallback?.confidenceScore ?? 0);
-  const relevanceScore = safeScoreNumber(parsedObj.relevanceScore, fallback?.relevanceScore ?? 0);
-  const problemSolvingScore = safeScoreNumber(parsedObj.problemSolvingScore, fallback?.problemSolvingScore ?? 0);
-  const professionalismScore = safeScoreNumber(parsedObj.professionalismScore, fallback?.professionalismScore ?? 0);
+  const relevanceScore = safeScoreNumber(parsedObj.relevanceScore ?? overallScore, fallback?.relevanceScore ?? 0);
+  const problemSolvingScore = safeScoreNumber(parsedObj.problemSolvingScore ?? technicalScore, fallback?.problemSolvingScore ?? 0);
+  const professionalismScore = safeScoreNumber(parsedObj.professionalismScore ?? communicationScore, fallback?.professionalismScore ?? 0);
 
-  const strengths = Array.isArray(parsedObj.strengths)
-    ? parsedObj.strengths.map(String)
-    : (fallback?.strengths || []);
+  const strengths = Array.isArray(parsedObj.strengths) ? parsedObj.strengths.map(String) : [];
+  const weaknesses = Array.isArray(parsedObj.weaknesses) ? parsedObj.weaknesses.map(String) : [];
+  const feedback = String(parsedObj.feedback || '');
+  const improvedAnswer = String(parsedObj.improvedAnswer || '');
 
-  const weaknesses = Array.isArray(parsedObj.weaknesses)
-    ? parsedObj.weaknesses.map(String)
-    : (fallback?.weaknesses || []);
-
-  const feedback = String(parsedObj.feedback || parsedObj.evaluation?.suggestions || fallback?.feedback || '');
-  const improvedAnswer = String(parsedObj.improvedAnswer || parsedObj.idealAnswer || fallback?.improvedAnswer || '');
-
-  let recommendation: 'Pass' | 'Borderline' | 'Fail' = fallback?.recommendation || 'Fail';
+  let recommendation: 'Pass' | 'Borderline' | 'Fail' = 'Fail';
   if (['Pass', 'Borderline', 'Fail'].includes(parsedObj.recommendation)) {
     recommendation = parsedObj.recommendation;
   } else {
@@ -167,7 +223,7 @@ export const parseAndValidateEvaluation = (
 
   const learningSuggestions = Array.isArray(parsedObj.learningSuggestions)
     ? parsedObj.learningSuggestions.map(String)
-    : (fallback?.learningSuggestions || []);
+    : [];
 
   const validatedResult: IEvaluationResult = {
     overallScore,
@@ -184,8 +240,6 @@ export const parseAndValidateEvaluation = (
     improvedAnswer,
     recommendation,
     learningSuggestions,
-
-    // Legacy compatibility fields
     score: overallScore,
     evaluation: {
       grammar: `Grammar Score: ${grammarScore}/10`,
@@ -196,19 +250,7 @@ export const parseAndValidateEvaluation = (
     idealAnswer: improvedAnswer
   };
 
-  console.log('TASK 6 - VALIDATION RESULT: PASS');
-  console.log('TASK 6 - DISPLAYED VALUES:', {
-    overallScore: validatedResult.overallScore,
-    technicalScore: validatedResult.technicalScore,
-    communicationScore: validatedResult.communicationScore,
-    grammarScore: validatedResult.grammarScore,
-    confidenceScore: validatedResult.confidenceScore,
-    relevanceScore: validatedResult.relevanceScore,
-    problemSolvingScore: validatedResult.problemSolvingScore,
-    professionalismScore: validatedResult.professionalismScore,
-    recommendation: validatedResult.recommendation
-  });
-
+  console.log('TASK 5 - VALIDATION RESULT: PASS');
   return validatedResult;
 };
 
@@ -299,7 +341,7 @@ export const evaluateHRAnswer = async (
     return task5EarlyReturn;
   }
 
-  // TASK 4 & 6: DYNAMIC EVALUATION PROMPT CALIBRATION
+  // TASK 6: PROMPT INSTRUCTIONS
   const prompt = `You are an expert technical interviewer evaluating a candidate for the role of: "${jobRole}".
 
 Question: "${question}"
@@ -307,14 +349,21 @@ Candidate's Answer: "${answerClean}"
 
 STRICT EVALUATION INSTRUCTIONS:
 - Evaluate ONLY this specific answer against the question and job role.
-- Be highly dynamic and strictly assign scores based on the actual technical accuracy and completeness:
-  * 9.0–10.0: Perfect, comprehensive, accurate answer with deep technical insights or clear examples.
+- Be highly dynamic and strictly assign scores based on the actual technical accuracy:
+  * 9.0–10.0: Perfect, comprehensive, accurate answer with deep technical insights.
   * 7.0–8.9: Good, correct answer covering core concepts well.
   * 5.0–6.9: Average answer; partially correct or missing important details.
   * 2.0–4.9: Weak answer with significant errors, vagueness, or inaccuracies.
   * 0.0–1.9: Completely incorrect or irrelevant answer.
 
-Return ONLY a valid JSON object matching this exact structure:
+CRITICAL FORMAT REQUIREMENT:
+Return ONLY a JSON object.
+Do not include markdown.
+Do not include explanations.
+Do not include code fences.
+Do not include text before or after JSON.
+
+Required JSON structure:
 {
   "overallScore": 8.5,
   "technicalScore": 8.8,
@@ -332,7 +381,7 @@ Return ONLY a valid JSON object matching this exact structure:
   "learningSuggestions": ["Advanced topic review"]
 }`;
 
-  console.log('TASK 6 - PROMPT SENT TO GEMINI:\n' + prompt);
+  console.log('TASK 6 - PROMPT SENT TO GEMINI (ATTEMPT 1):\n' + prompt);
 
   const client = await getGenAIClient();
   if (!client) {
@@ -340,20 +389,34 @@ Return ONLY a valid JSON object matching this exact structure:
     throw new Error('Gemini API client unavailable');
   }
 
+  // ATTEMPT 1
   try {
-    const rawResponse = await generateContentSafe(client, prompt);
-    console.log('TASK 2 / TASK 8 - RAW GEMINI EVALUATION JSON:\n' + rawResponse);
-
-    const validated = parseAndValidateEvaluation(rawResponse, null);
-    if (validated) {
-      console.log('TASK 8 - FINAL JSON RETURNED BY BACKEND:', validated);
-      return validated;
+    const rawResponse1 = await generateContentSafe(client, prompt);
+    const validated1 = parseAndValidateEvaluation(rawResponse1, null);
+    if (validated1) {
+      console.log('TASK 5 - FINAL JSON RETURNED BY BACKEND (ATTEMPT 1):', validated1);
+      return validated1;
     }
-  } catch (err: any) {
-    console.error('⚠️ Gemini Evaluation Error:', err?.message || err);
+  } catch (err1: any) {
+    console.warn('⚠️ Gemini Attempt 1 Failed:', err1?.message || err1);
   }
 
-  throw new Error('Failed to obtain a valid evaluation score from Gemini.');
+  // TASK 3 & 4: ATTEMPT 2 (Ask Gemini ONE MORE TIME with "Return ONLY valid JSON.")
+  console.log('🔄 Retrying Gemini evaluation (ATTEMPT 2)...');
+  const retryPrompt = `${prompt}\n\nIMPORTANT RE-PROMPT REQUIREMENT: Your previous response contained formatting errors. Return ONLY valid JSON without markdown fences, commentary, or text before/after.`;
+
+  try {
+    const rawResponse2 = await generateContentSafe(client, retryPrompt);
+    const validated2 = parseAndValidateEvaluation(rawResponse2, null);
+    if (validated2) {
+      console.log('TASK 5 - FINAL JSON RETURNED BY BACKEND (ATTEMPT 2):', validated2);
+      return validated2;
+    }
+  } catch (err2: any) {
+    console.warn('⚠️ Gemini Attempt 2 Failed:', err2?.message || err2);
+  }
+
+  throw new Error('Failed to obtain a valid evaluation score from Gemini after 2 attempts.');
 };
 
 // 3. Analyze Resume (ATS & Skill identification)
